@@ -9,6 +9,13 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+## [0.0.1](https://github.com/OxideAV/oxideav-ape/releases/tag/v0.0.1) - 2026-05-30
+
+### Other
+
+- Phase 1 bootstrap: 'MAC ' magic + version + compression-level prefix parser
+- Initial commit — MIT LICENSE (Karpelès Lab Inc.)
+
 ### Added
 
 - **Phase 1 bootstrap** — clean-room scaffold for **Monkey's Audio**
