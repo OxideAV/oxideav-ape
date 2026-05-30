@@ -1,0 +1,24 @@
+[package]
+name = "oxideav-ape"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+authors = ["Mark Karpeles"]
+description = "Pure-Rust clean-room Monkey's Audio (.ape) decoder scaffold for the oxideav framework — Phase 1 file-header prefix parser (MAC magic + version + compression level)"
+repository = "https://github.com/OxideAV/oxideav-ape"
+homepage = "https://github.com/OxideAV/oxideav-ape"
+readme = "README.md"
+keywords = ["multimedia", "audio", "ape", "monkeys-audio", "lossless"]
+categories = ["multimedia::encoding", "multimedia::audio"]
+
+[features]
+default = ["registry"]
+
+# Wire the crate's tag declaration into `oxideav-core`. Disable for a
+# standalone build that exposes the file-header parser without
+# dragging in the framework dependency tree.
+registry = ["dep:oxideav-core"]
+
+[dependencies]
+oxideav-core = { version = "0.1", optional = true }
