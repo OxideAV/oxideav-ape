@@ -86,6 +86,17 @@ impl CompressionLevel {
     }
 }
 
+impl core::fmt::Display for CompressionLevel {
+    /// Writes the wiki narrative's lowercase label
+    /// ([`CompressionLevel::label`]) followed by the raw decimal value
+    /// in parentheses, e.g. `"normal (2000)"`. Carries both the named
+    /// profile and the stored field value so a single line of diagnostic
+    /// output identifies the level unambiguously.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} ({})", self.label(), self.as_u16())
+    }
+}
+
 /// The parsed 8-byte Monkey's Audio header prefix.
 ///
 /// `header_tail_offset` is always `HEADER_PREFIX_LEN` (8). Phase 1
@@ -149,6 +160,24 @@ impl HeaderPrefix {
         out[4..6].copy_from_slice(&self.version_raw.to_le_bytes());
         out[6..8].copy_from_slice(&self.compression_level.as_u16().to_le_bytes());
         out
+    }
+}
+
+impl core::fmt::Display for HeaderPrefix {
+    /// Writes a single-line summary in the form
+    /// `"MAC v3.92 (raw=3920) normal (2000)"`. Combines the
+    /// [`HeaderPrefix::version`] decode and the
+    /// [`CompressionLevel`] `Display` form, with the raw
+    /// `version_raw` field shown verbatim so the diagnostic stays
+    /// faithful to the on-wire bytes even when the encoder writes a
+    /// raw value the staged docs do not pin a worked example for.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let (major, minor) = self.version();
+        write!(
+            f,
+            "MAC v{}.{:02} (raw={}) {}",
+            major, minor, self.version_raw, self.compression_level
+        )
     }
 }
 
@@ -242,5 +271,88 @@ mod tests {
             &bytes[h.header_tail_offset..h.header_tail_offset + 4],
             &[0xAA; 4]
         );
+    }
+
+    #[test]
+    fn compression_level_display_pairs_label_and_raw() {
+        // Display couples the wiki narrative's lowercase label with the
+        // raw u16 stored on the wire. Anchors the diagnostic format the
+        // crate's `Display` impl promises so downstream call sites can
+        // depend on it in error messages.
+        assert_eq!(format!("{}", CompressionLevel::Fast), "fast (1000)");
+        assert_eq!(format!("{}", CompressionLevel::Normal), "normal (2000)");
+        assert_eq!(format!("{}", CompressionLevel::High), "high (3000)");
+        assert_eq!(
+            format!("{}", CompressionLevel::ExtraHigh),
+            "extra high (4000)"
+        );
+        assert_eq!(format!("{}", CompressionLevel::Insane), "insane (5000)");
+    }
+
+    #[test]
+    fn header_prefix_display_renders_wiki_worked_example() {
+        // The wiki narrative pins exactly one worked example
+        // (v3.92 / level 2000). Anchor the Display output against it
+        // so the format string survives future refactors.
+        let h = HeaderPrefix {
+            version_raw: 3920,
+            compression_level: CompressionLevel::Normal,
+            header_tail_offset: HEADER_PREFIX_LEN,
+        };
+        assert_eq!(format!("{h}"), "MAC v3.92 (raw=3920) normal (2000)");
+    }
+
+    #[test]
+    fn header_prefix_display_keeps_raw_field_verbatim() {
+        // The decimal-coded version helper rounds (raw / 1000,
+        // (raw % 1000) / 10); the Display impl additionally surfaces
+        // the raw u16 so an encoder that wrote a value the docs do
+        // not pin a worked example for is still distinguishable from
+        // a documented one with the same decomposition.
+        let h = HeaderPrefix {
+            version_raw: 3925, // decomposes to (3, 92) just like 3920.
+            compression_level: CompressionLevel::Fast,
+            header_tail_offset: HEADER_PREFIX_LEN,
+        };
+        assert_eq!(format!("{h}"), "MAC v3.92 (raw=3925) fast (1000)");
+    }
+
+    #[test]
+    fn single_byte_mutation_of_worked_example_is_always_well_defined() {
+        // Anti-fuzz: every 1-byte mutation of the wiki worked example
+        // must either parse successfully (still a valid prefix) or
+        // return one of the documented `Error` variants. No panic, no
+        // `NotImplemented` leakage out of `parse` (Phase 1 reserves
+        // `NotImplemented` for the per-version tail parser the staged
+        // docs do not pin).
+        let baseline = [b'M', b'A', b'C', b' ', 0x50, 0x0F, 0xD0, 0x07];
+        for offset in 0..HEADER_PREFIX_LEN {
+            for delta in 1u16..=255 {
+                let mut mutated = baseline;
+                mutated[offset] = baseline[offset].wrapping_add(delta as u8);
+                match HeaderPrefix::parse(&mutated) {
+                    Ok(_) => {} // a different-but-valid prefix.
+                    Err(Error::InvalidMagic) => {
+                        // Mutations inside offsets 0..4 can flip the
+                        // magic; that's the only place this variant
+                        // can fire on an 8-byte buffer.
+                        assert!(offset < 4, "InvalidMagic at offset {offset}");
+                    }
+                    Err(Error::UnknownCompressionLevel(_)) => {
+                        // Mutations inside offsets 6..8 can flip the
+                        // compression-level field off the documented
+                        // set; offsets 4..6 only touch `version_raw`,
+                        // which `parse` does not gate.
+                        assert!(offset >= 6, "UnknownCompressionLevel at offset {offset}");
+                    }
+                    Err(Error::Truncated) => panic!(
+                        "Truncated reported for an 8-byte buffer at offset {offset}"
+                    ),
+                    Err(Error::NotImplemented) => panic!(
+                        "NotImplemented leaked out of parse() at offset {offset}; Phase 1 reserves this for the per-version tail parser"
+                    ),
+                }
+            }
+        }
     }
 }

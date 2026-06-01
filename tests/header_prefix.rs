@@ -64,3 +64,21 @@ fn unknown_compression_level_reports_raw_value() {
         Error::UnknownCompressionLevel(5)
     );
 }
+
+#[test]
+fn header_prefix_display_matches_phase1_format() {
+    // Mirror of the unit-test anchor at the integration boundary so
+    // a downstream caller can rely on the documented one-line
+    // Display form for diagnostics.
+    let bytes = [b'M', b'A', b'C', b' ', 0x50, 0x0F, 0xD0, 0x07];
+    let h = HeaderPrefix::parse(&bytes).expect("well-formed prefix");
+    assert_eq!(format!("{h}"), "MAC v3.92 (raw=3920) normal (2000)");
+}
+
+#[test]
+fn compression_level_display_couples_label_with_raw_value() {
+    assert_eq!(
+        format!("{}", CompressionLevel::ExtraHigh),
+        "extra high (4000)"
+    );
+}

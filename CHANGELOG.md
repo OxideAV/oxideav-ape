@@ -9,6 +9,31 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `core::fmt::Display` for [`header::CompressionLevel`] — writes the
+  wiki narrative's lowercase label followed by the raw decimal value
+  in parentheses (e.g. `"normal (2000)"`), so a single line of
+  diagnostic output identifies both the named profile and the stored
+  field value.
+- `core::fmt::Display` for [`header::HeaderPrefix`] — writes a
+  single-line summary in the form
+  `"MAC v3.92 (raw=3920) normal (2000)"`. Surfaces the raw
+  `version_raw` field verbatim so an encoder that wrote a value the
+  staged docs do not pin a worked example for is still
+  distinguishable from a documented one with the same decomposition.
+
+### Tests
+
+- Single-byte-mutation coverage of the wiki worked example: every
+  one-byte perturbation of the well-formed prefix
+  `'MAC ' + 3920 + 2000` (8 × 255 = 2040 inputs) is asserted to
+  either parse successfully or return one of `InvalidMagic`,
+  `UnknownCompressionLevel`. `Truncated` is never reported for an
+  8-byte buffer; `NotImplemented` never leaks out of `parse` (Phase 1
+  reserves it for the per-version tail parser the staged docs do not
+  pin). Anti-fuzz harness that runs on every CI invocation.
+
 ## [0.0.1](https://github.com/OxideAV/oxideav-ape/releases/tag/v0.0.1) - 2026-05-30
 
 ### Other

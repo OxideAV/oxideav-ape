@@ -38,6 +38,8 @@ assert_eq!(h.version(), (3, 92));
 assert_eq!(h.compression_level, CompressionLevel::Normal);
 // Phase 2+ picks up at this offset:
 assert_eq!(h.header_tail_offset, 8);
+// One-line diagnostic via the `Display` impl:
+assert_eq!(format!("{h}"), "MAC v3.92 (raw=3920) normal (2000)");
 ```
 
 ## Crate features
