@@ -82,3 +82,46 @@ fn compression_level_display_couples_label_with_raw_value() {
         "extra high (4000)"
     );
 }
+
+#[test]
+fn compression_level_all_constant_is_visible_through_public_api() {
+    // The const array publishes the documented set so a caller can
+    // iterate it without committing to a particular Rust-side
+    // discriminant order.
+    let raws: Vec<u16> = CompressionLevel::ALL.iter().map(|l| l.as_u16()).collect();
+    assert_eq!(raws, vec![1000, 2000, 3000, 4000, 5000]);
+}
+
+#[test]
+fn standard_conversion_traits_are_in_scope() {
+    // `From<CompressionLevel> for u16` — forward conversion via the
+    // standard trait, equivalent to `as_u16` but available as
+    // `u16::from(level)` / `.into()`.
+    let raw: u16 = u16::from(CompressionLevel::High);
+    assert_eq!(raw, 3000);
+
+    // `TryFrom<u16> for CompressionLevel` — reverse conversion via
+    // the standard trait, equivalent to `from_u16`.
+    let parsed = CompressionLevel::try_from(4000u16).unwrap();
+    assert_eq!(parsed, CompressionLevel::ExtraHigh);
+    assert_eq!(
+        CompressionLevel::try_from(99u16).unwrap_err(),
+        Error::UnknownCompressionLevel(99)
+    );
+}
+
+#[test]
+fn from_str_recovers_every_documented_label_from_its_display_form() {
+    use core::str::FromStr;
+    for level in CompressionLevel::ALL {
+        // Round-trip through the narrative label exactly as
+        // `Display` / `label()` emit it.
+        let parsed = CompressionLevel::from_str(level.label()).unwrap();
+        assert_eq!(parsed, level);
+    }
+    // Unknown labels surface the dedicated variant.
+    assert_eq!(
+        CompressionLevel::from_str("turbo").unwrap_err(),
+        Error::UnknownCompressionLabel
+    );
+}

@@ -42,6 +42,14 @@ assert_eq!(h.header_tail_offset, 8);
 assert_eq!(format!("{h}"), "MAC v3.92 (raw=3920) normal (2000)");
 ```
 
+The compression-level field also exposes the standard conversion
+traits — `u16::from(level)` for forward conversion,
+`CompressionLevel::try_from(raw)` for reverse, and
+`"normal".parse::<CompressionLevel>()` for the narrative label form.
+`CompressionLevel::ALL` is a `const` array carrying every documented
+profile in the order the staged docs print them, for call sites that
+need to walk the documented set.
+
 ## Crate features
 
 | Feature    | Default | Effect                                                                 |

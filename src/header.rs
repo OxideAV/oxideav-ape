@@ -48,6 +48,26 @@ pub enum CompressionLevel {
 }
 
 impl CompressionLevel {
+    /// All five documented compression-level profiles, in the order
+    /// the staged docs list them (fast → normal → high → extra high
+    /// → insane). Exposed as a `const` so call sites can iterate the
+    /// documented set without committing to any speculative future
+    /// profile a later docs revision might introduce.
+    pub const ALL: [CompressionLevel; 5] = [
+        CompressionLevel::Fast,
+        CompressionLevel::Normal,
+        CompressionLevel::High,
+        CompressionLevel::ExtraHigh,
+        CompressionLevel::Insane,
+    ];
+
+    /// Iterate every documented compression-level profile, in the
+    /// order the staged docs list them. Convenience wrapper over
+    /// [`CompressionLevel::ALL`].
+    pub fn iter() -> core::iter::Copied<core::slice::Iter<'static, CompressionLevel>> {
+        Self::ALL.iter().copied()
+    }
+
     /// Encode the profile as the raw little-endian u16 the file
     /// carries.
     pub fn as_u16(self) -> u16 {
@@ -82,6 +102,52 @@ impl CompressionLevel {
             CompressionLevel::High => "high",
             CompressionLevel::ExtraHigh => "extra high",
             CompressionLevel::Insane => "insane",
+        }
+    }
+}
+
+impl From<CompressionLevel> for u16 {
+    /// Forward conversion to the raw on-wire little-endian u16 the
+    /// file carries. Equivalent to [`CompressionLevel::as_u16`] but
+    /// exposed through the standard `From` trait so call sites can
+    /// rely on `u16::from(level)` and `.into()`-style coercions.
+    fn from(level: CompressionLevel) -> u16 {
+        level.as_u16()
+    }
+}
+
+impl TryFrom<u16> for CompressionLevel {
+    type Error = crate::error::Error;
+
+    /// Reverse conversion from the raw 16-bit on-wire field. Returns
+    /// [`Error::UnknownCompressionLevel`] for any value outside the
+    /// documented `{1000, 2000, 3000, 4000, 5000}` set. Thin wrapper
+    /// over [`CompressionLevel::from_u16`] exposed through the
+    /// standard `TryFrom` trait so call sites can rely on
+    /// `CompressionLevel::try_from(raw)` and `.try_into()`-style
+    /// coercions.
+    fn try_from(raw: u16) -> Result<Self> {
+        Self::from_u16(raw)
+    }
+}
+
+impl core::str::FromStr for CompressionLevel {
+    type Err = crate::error::Error;
+
+    /// Parse a profile from its narrative label. The match is
+    /// case-insensitive on the five documented labels — "fast",
+    /// "normal", "high", "extra high", "insane" — and ignores ASCII
+    /// whitespace at both ends of the input. The inverse of
+    /// [`CompressionLevel::label`]. Returns
+    /// [`Error::UnknownCompressionLabel`] for any other input.
+    fn from_str(s: &str) -> Result<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "fast" => Ok(CompressionLevel::Fast),
+            "normal" => Ok(CompressionLevel::Normal),
+            "high" => Ok(CompressionLevel::High),
+            "extra high" => Ok(CompressionLevel::ExtraHigh),
+            "insane" => Ok(CompressionLevel::Insane),
+            _ => Err(crate::error::Error::UnknownCompressionLabel),
         }
     }
 }
@@ -318,6 +384,126 @@ mod tests {
     }
 
     #[test]
+    fn compression_level_all_lists_the_five_documented_profiles_in_doc_order() {
+        // The wiki §"Compression levels" lists the five profiles in
+        // ascending raw-value order (1000 → 5000). `ALL` must mirror
+        // that order so call sites that iterate it walk the
+        // documented sequence rather than a Rust-source-declaration
+        // accident.
+        let raws: Vec<u16> = CompressionLevel::ALL.iter().map(|l| l.as_u16()).collect();
+        assert_eq!(raws, vec![1000, 2000, 3000, 4000, 5000]);
+        assert_eq!(CompressionLevel::ALL.len(), 5);
+    }
+
+    #[test]
+    fn compression_level_iter_walks_the_documented_set_once() {
+        let collected: Vec<CompressionLevel> = CompressionLevel::iter().collect();
+        assert_eq!(collected.as_slice(), &CompressionLevel::ALL[..]);
+        // The iterator is one-shot per call — a second call yields
+        // the same sequence afresh (rather than picking up where the
+        // first left off), which is the std-iter contract for fresh
+        // `iter()` calls on a slice.
+        let twice: usize = CompressionLevel::iter().count() + CompressionLevel::iter().count();
+        assert_eq!(twice, 10);
+    }
+
+    #[test]
+    fn try_from_u16_mirrors_from_u16() {
+        for raw in [1000u16, 2000, 3000, 4000, 5000] {
+            let via_trait = <CompressionLevel as TryFrom<u16>>::try_from(raw).unwrap();
+            let via_inherent = CompressionLevel::from_u16(raw).unwrap();
+            assert_eq!(via_trait, via_inherent);
+        }
+        // Unknown values surface the same Error variant either way.
+        assert_eq!(
+            <CompressionLevel as TryFrom<u16>>::try_from(1234).unwrap_err(),
+            Error::UnknownCompressionLevel(1234)
+        );
+    }
+
+    #[test]
+    fn from_compression_level_into_u16_round_trips() {
+        for level in CompressionLevel::ALL {
+            let raw: u16 = u16::from(level);
+            assert_eq!(raw, level.as_u16());
+            let back: CompressionLevel = TryFrom::try_from(raw).unwrap();
+            assert_eq!(back, level);
+        }
+    }
+
+    #[test]
+    fn from_str_parses_every_documented_label() {
+        use core::str::FromStr;
+        for level in CompressionLevel::ALL {
+            let parsed = CompressionLevel::from_str(level.label()).unwrap();
+            assert_eq!(parsed, level);
+        }
+    }
+
+    #[test]
+    fn from_str_is_case_insensitive_and_trims_whitespace() {
+        use core::str::FromStr;
+        // Case variations.
+        assert_eq!(
+            CompressionLevel::from_str("FAST").unwrap(),
+            CompressionLevel::Fast
+        );
+        assert_eq!(
+            CompressionLevel::from_str("Normal").unwrap(),
+            CompressionLevel::Normal
+        );
+        assert_eq!(
+            CompressionLevel::from_str("Extra High").unwrap(),
+            CompressionLevel::ExtraHigh
+        );
+        // Leading/trailing whitespace stripped.
+        assert_eq!(
+            CompressionLevel::from_str("  insane\n").unwrap(),
+            CompressionLevel::Insane
+        );
+    }
+
+    #[test]
+    fn from_str_rejects_undocumented_label() {
+        use core::str::FromStr;
+        assert_eq!(
+            CompressionLevel::from_str("turbo").unwrap_err(),
+            Error::UnknownCompressionLabel
+        );
+        // The numeric form is not a documented narrative label —
+        // callers should use `from_u16` / `TryFrom<u16>` for that.
+        assert_eq!(
+            CompressionLevel::from_str("2000").unwrap_err(),
+            Error::UnknownCompressionLabel
+        );
+        // Empty string rejects.
+        assert_eq!(
+            CompressionLevel::from_str("").unwrap_err(),
+            Error::UnknownCompressionLabel
+        );
+        // Whitespace-only rejects.
+        assert_eq!(
+            CompressionLevel::from_str("   ").unwrap_err(),
+            Error::UnknownCompressionLabel
+        );
+    }
+
+    #[test]
+    fn from_str_label_to_display_round_trips() {
+        // For every documented profile, `Display`'s "label (raw)" form
+        // can be split on " (" to recover the label, and the label
+        // round-trips through `FromStr`.
+        use core::str::FromStr;
+        for level in CompressionLevel::ALL {
+            let displayed = format!("{level}");
+            let (label, rest) = displayed.split_once(" (").expect("space-paren split");
+            assert!(rest.ends_with(')'));
+            let parsed = CompressionLevel::from_str(label).unwrap();
+            assert_eq!(parsed, level);
+        }
+    }
+
+    #[test]
     fn single_byte_mutation_of_worked_example_is_always_well_defined() {
         // Anti-fuzz: every 1-byte mutation of the wiki worked example
         // must either parse successfully (still a valid prefix) or
@@ -347,6 +533,9 @@ mod tests {
                     }
                     Err(Error::Truncated) => panic!(
                         "Truncated reported for an 8-byte buffer at offset {offset}"
+                    ),
+                    Err(Error::UnknownCompressionLabel) => panic!(
+                        "UnknownCompressionLabel leaked out of parse() at offset {offset}; that variant belongs to FromStr, not the binary prefix parser"
                     ),
                     Err(Error::NotImplemented) => panic!(
                         "NotImplemented leaked out of parse() at offset {offset}; Phase 1 reserves this for the per-version tail parser"

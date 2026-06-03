@@ -22,6 +22,28 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
   `version_raw` field verbatim so an encoder that wrote a value the
   staged docs do not pin a worked example for is still
   distinguishable from a documented one with the same decomposition.
+- [`header::CompressionLevel::ALL`] — `const [CompressionLevel; 5]`
+  listing the documented profiles in the order the staged docs print
+  them (fast → normal → high → extra high → insane). Call sites can
+  iterate the documented set without committing to a particular
+  Rust-side discriminant order.
+- [`header::CompressionLevel::iter`] — convenience wrapper over `ALL`
+  that hands back a copied iterator.
+- `From<CompressionLevel> for u16` — forward conversion via the
+  standard `From` trait, equivalent to `as_u16` but available as
+  `u16::from(level)` / `.into()`-style coercions.
+- `TryFrom<u16> for CompressionLevel` — reverse conversion via the
+  standard `TryFrom` trait. Returns the existing
+  `Error::UnknownCompressionLevel` for values outside the documented
+  `{1000, 2000, 3000, 4000, 5000}` set.
+- `core::str::FromStr for CompressionLevel` — parse a profile from
+  its narrative label. Case-insensitive on the five documented
+  labels — "fast", "normal", "high", "extra high", "insane" — and
+  trims ASCII whitespace at both ends.
+- `Error::UnknownCompressionLabel` — new variant fired by `FromStr`
+  when the textual label falls outside the documented set. The
+  binary `parse` path is statically forbidden from emitting this
+  variant; the anti-fuzz harness rejects it explicitly.
 
 ### Tests
 
@@ -30,9 +52,21 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
   `'MAC ' + 3920 + 2000` (8 × 255 = 2040 inputs) is asserted to
   either parse successfully or return one of `InvalidMagic`,
   `UnknownCompressionLevel`. `Truncated` is never reported for an
-  8-byte buffer; `NotImplemented` never leaks out of `parse` (Phase 1
-  reserves it for the per-version tail parser the staged docs do not
-  pin). Anti-fuzz harness that runs on every CI invocation.
+  8-byte buffer; neither `UnknownCompressionLabel` (that variant
+  belongs to `FromStr`) nor `NotImplemented` ever leak out of `parse`
+  (Phase 1 reserves the latter for the per-version tail parser the
+  staged docs do not pin). Anti-fuzz harness that runs on every CI
+  invocation.
+- `CompressionLevel::ALL` is asserted to be ordered (1000 → 5000),
+  to have length 5, and to be reachable through `iter()` more than
+  once per call without state leakage.
+- `TryFrom<u16>` and `From<CompressionLevel> for u16` are
+  cross-checked against the inherent `from_u16` / `as_u16` pair on
+  every documented profile and on a representative unknown value.
+- `FromStr` parses every documented label, accepts mixed case and
+  leading/trailing whitespace, rejects undocumented strings (incl.
+  the empty string, a whitespace-only string, and the numeric form),
+  and round-trips through `Display`'s `"label (raw)"` form.
 
 ## [0.0.1](https://github.com/OxideAV/oxideav-ape/releases/tag/v0.0.1) - 2026-05-30
 

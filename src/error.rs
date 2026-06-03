@@ -27,6 +27,11 @@ pub enum Error {
     /// outside that set is either stream corruption or an
     /// out-of-scope encoder profile not covered by the staged docs.
     UnknownCompressionLevel(u16),
+    /// A textual compression-level label (e.g. parsed via
+    /// [`core::str::FromStr`]) did not match any of the five
+    /// documented narrative labels — "fast", "normal", "high",
+    /// "extra high", "insane".
+    UnknownCompressionLabel,
     /// Phase 1 only parses the 8-byte header prefix. Any operation
     /// that would require the per-version header-tail parser (sound
     /// parameters, frame count, seek table) returns this until the
@@ -45,6 +50,9 @@ impl core::fmt::Display for Error {
             Error::UnknownCompressionLevel(v) => write!(
                 f,
                 "oxideav-ape: compression level {v} is outside the documented {{1000,2000,3000,4000,5000}} set"
+            ),
+            Error::UnknownCompressionLabel => f.write_str(
+                "oxideav-ape: compression label is outside the documented {fast, normal, high, extra high, insane} set",
             ),
             Error::NotImplemented => f.write_str(
                 "oxideav-ape: feature not implemented in Phase 1 (header prefix parser only)",
