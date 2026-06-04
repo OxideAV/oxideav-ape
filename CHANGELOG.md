@@ -11,6 +11,22 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- `Hash` derive on [`header::CompressionLevel`] and
+  [`header::HeaderPrefix`] — both types can now index `HashMap` /
+  `HashSet`. The compression-level Hash is paired with `Eq` such that
+  every profile in `CompressionLevel::ALL` dedups into a distinct
+  slot; the header-prefix Hash distinguishes any change to
+  `version_raw` or `compression_level`.
+- `PartialOrd` / `Ord` for [`header::CompressionLevel`] — orders by
+  the raw on-wire `u16`, which is the gradient the staged docs print
+  the profiles in (`Fast` 1000 → `Insane` 5000). Lets call sites sort
+  the type and express "at or above `High`" predicates without
+  committing to a Rust-discriminant accident.
+- [`header::HeaderPrefix::major`] / [`header::HeaderPrefix::minor`] —
+  one-shot accessors for the major / minor components of the decimal
+  -coded version field. Equivalent to `self.version().0` /
+  `self.version().1` but available so a call site that only needs one
+  component skips the tuple destructure.
 - `core::fmt::Display` for [`header::CompressionLevel`] — writes the
   wiki narrative's lowercase label followed by the raw decimal value
   in parentheses (e.g. `"normal (2000)"`), so a single line of
@@ -47,6 +63,21 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Tests
 
+- `CompressionLevel::Ord` mirrors the documented ascending gradient:
+  the four `<` comparisons across consecutive profiles all hold, and
+  sorting an out-of-order array recovers `CompressionLevel::ALL`.
+- `CompressionLevel::Hash` produces no collisions across the five
+  documented profiles when inserted into a `HashMap`.
+- Exhaustive `version()` decomposition: every value in `0..=u16::MAX`
+  is fed through `HeaderPrefix::version()` and asserted equal to the
+  arithmetic identity `(raw / 1000, (raw % 1000) / 10)`. The
+  standalone `major()` / `minor()` accessors are cross-checked
+  against the tuple form on every input.
+- `HeaderPrefix::Hash` paired with `Eq`: equal twins dedup; differing
+  fields (compression-level OR version-raw) produce distinct
+  `HashSet` entries.
+- Public-API integration tests for `Ord` (sort + `>= High` filter)
+  and the `major()` / `minor()` accessors at the crate root.
 - Single-byte-mutation coverage of the wiki worked example: every
   one-byte perturbation of the well-formed prefix
   `'MAC ' + 3920 + 2000` (8 × 255 = 2040 inputs) is asserted to

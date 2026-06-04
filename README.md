@@ -50,6 +50,16 @@ traits — `u16::from(level)` for forward conversion,
 profile in the order the staged docs print them, for call sites that
 need to walk the documented set.
 
+`CompressionLevel` derives `Hash` and implements `Ord` / `PartialOrd`
+ordered by the raw on-wire `u16` (the gradient the staged docs list
+the profiles in: `Fast < Normal < High < ExtraHigh < Insane`). This
+makes "is the encoder at or above the `High` profile" queries
+expressible at a sort + filter, and lets the type index `HashMap` /
+`HashSet`. `HeaderPrefix` derives `Hash` for the same reason. The
+parsed prefix also exposes `major()` / `minor()` accessors alongside
+the `version()` tuple form so a call site that only needs one
+component skips the tuple destructure.
+
 ## Crate features
 
 | Feature    | Default | Effect                                                                 |

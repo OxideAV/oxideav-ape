@@ -30,10 +30,19 @@ pub const HEADER_PREFIX_LEN: usize = 8;
 
 /// Encoder profile carried in the 16-bit compression-level field.
 ///
-/// The wiki §"Compression levels" pins five named profiles. We expose
-/// each as an enumerator and keep the raw u16 round-trippable via
-/// [`CompressionLevel::as_u16`] / [`CompressionLevel::from_u16`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The wiki §"Compression levels" pins five named profiles in ascending
+/// raw-value order (1000 fast → 5000 insane). We expose each as an
+/// enumerator, keep the raw u16 round-trippable via
+/// [`CompressionLevel::as_u16`] / [`CompressionLevel::from_u16`], and
+/// derive `Hash` + `Ord` so the type is usable as a hash-map key and
+/// orderable per the documented gradient.
+///
+/// The `Ord` / `PartialOrd` impls compare by the raw on-wire value, so
+/// `Fast < Normal < High < ExtraHigh < Insane` — the exact order the
+/// staged docs list the profiles in. This makes "is the encoder at or
+/// above the `High` profile" queries expressible without committing
+/// the call site to the inherent Rust-discriminant order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CompressionLevel {
     /// 1000 — "fast".
     Fast,
@@ -45,6 +54,22 @@ pub enum CompressionLevel {
     ExtraHigh,
     /// 5000 — "insane".
     Insane,
+}
+
+impl PartialOrd for CompressionLevel {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CompressionLevel {
+    /// Order by the raw 16-bit on-wire value, which is the order the
+    /// staged docs list the profiles in (1000 → 5000). Equivalent to
+    /// `self.as_u16().cmp(&other.as_u16())` but spelled out so the
+    /// derive surface stays explicit about which axis is ordered.
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.as_u16().cmp(&other.as_u16())
+    }
 }
 
 impl CompressionLevel {
@@ -169,7 +194,7 @@ impl core::fmt::Display for CompressionLevel {
 /// surfaces it as a named field so the call site reads the boundary
 /// explicitly when handing the remainder to a future per-version
 /// header-tail parser.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HeaderPrefix {
     /// Raw 16-bit version field. Encoders write the spec major and
     /// minor as `major * 1000 + minor * 10`; e.g. v3.92 is 3920 and
@@ -195,9 +220,25 @@ impl HeaderPrefix {
     /// the helper still returns the arithmetic decomposition without
     /// gating on a minimum.
     pub fn version(&self) -> (u16, u16) {
-        let major = self.version_raw / 1000;
-        let minor = (self.version_raw % 1000) / 10;
-        (major, minor)
+        (self.major(), self.minor())
+    }
+
+    /// Major component of the decimal-coded version field
+    /// (`version_raw / 1000`). For the wiki worked example
+    /// (`version_raw = 3920`) the major is `3`. Equivalent to
+    /// `self.version().0` but available as a one-shot accessor so call
+    /// sites that only need the major component skip the tuple destructure.
+    pub fn major(&self) -> u16 {
+        self.version_raw / 1000
+    }
+
+    /// Minor component of the decimal-coded version field
+    /// (`(version_raw % 1000) / 10`). For the wiki worked example
+    /// (`version_raw = 3920`) the minor is `92`. Equivalent to
+    /// `self.version().1` but available as a one-shot accessor so call
+    /// sites that only need the minor component skip the tuple destructure.
+    pub fn minor(&self) -> u16 {
+        (self.version_raw % 1000) / 10
     }
 
     /// Parse the 8-byte header prefix from `bytes`.
@@ -486,6 +527,118 @@ mod tests {
             CompressionLevel::from_str("   ").unwrap_err(),
             Error::UnknownCompressionLabel
         );
+    }
+
+    #[test]
+    fn compression_level_ord_matches_documented_ascending_gradient() {
+        // The wiki §"Compression levels" lists profiles in ascending
+        // raw-value order: 1000 fast → 2000 normal → 3000 high →
+        // 4000 extra high → 5000 insane. The `Ord` impl is required
+        // to mirror that gradient (i.e. order by the raw on-wire
+        // u16), so "is this level at or above `High`" queries are
+        // expressible without committing to a Rust-discriminant
+        // accident.
+        assert!(CompressionLevel::Fast < CompressionLevel::Normal);
+        assert!(CompressionLevel::Normal < CompressionLevel::High);
+        assert!(CompressionLevel::High < CompressionLevel::ExtraHigh);
+        assert!(CompressionLevel::ExtraHigh < CompressionLevel::Insane);
+
+        // The induced sort order across the full set matches the
+        // declared `ALL` order verbatim.
+        let mut shuffled = [
+            CompressionLevel::Insane,
+            CompressionLevel::Fast,
+            CompressionLevel::ExtraHigh,
+            CompressionLevel::Normal,
+            CompressionLevel::High,
+        ];
+        shuffled.sort();
+        assert_eq!(shuffled, CompressionLevel::ALL);
+    }
+
+    #[test]
+    fn compression_level_hash_is_distinct_across_documented_set() {
+        // `Hash` lets the type be used as a `HashMap` key. A trivial
+        // smoke-test inserts every documented profile into a
+        // `HashMap` and asserts each round-trips with a distinct
+        // payload — i.e. no two profiles collide under `Hash + Eq`.
+        use std::collections::HashMap;
+        let mut by_level: HashMap<CompressionLevel, u16> = HashMap::new();
+        for level in CompressionLevel::ALL {
+            by_level.insert(level, level.as_u16());
+        }
+        assert_eq!(by_level.len(), CompressionLevel::ALL.len());
+        for level in CompressionLevel::ALL {
+            assert_eq!(by_level.get(&level), Some(&level.as_u16()));
+        }
+    }
+
+    #[test]
+    fn version_arithmetic_decomposes_every_u16_consistently() {
+        // Anti-fuzz: the `version()` decomposition is pure arithmetic
+        // (`(raw / 1000, (raw % 1000) / 10)`) and must satisfy that
+        // identity for every possible raw value. Also asserts the
+        // standalone `major()` / `minor()` accessors agree with the
+        // tuple form, so the three entry points stay in lockstep.
+        for raw in 0u16..=u16::MAX {
+            let h = HeaderPrefix {
+                version_raw: raw,
+                compression_level: CompressionLevel::Normal,
+                header_tail_offset: HEADER_PREFIX_LEN,
+            };
+            let (major, minor) = h.version();
+            assert_eq!(major, raw / 1000);
+            assert_eq!(minor, (raw % 1000) / 10);
+            assert_eq!(h.major(), major);
+            assert_eq!(h.minor(), minor);
+        }
+    }
+
+    #[test]
+    fn header_prefix_hash_pairs_with_eq() {
+        // `HeaderPrefix` derives `Hash + Eq` so it can index a
+        // `HashSet`. Two equal prefixes must hash identically and
+        // dedup to one slot; a difference in any field must produce
+        // distinct entries.
+        use std::collections::HashSet;
+        let baseline = HeaderPrefix {
+            version_raw: 3920,
+            compression_level: CompressionLevel::Normal,
+            header_tail_offset: HEADER_PREFIX_LEN,
+        };
+        let twin = baseline;
+        let mut set: HashSet<HeaderPrefix> = HashSet::new();
+        set.insert(baseline);
+        set.insert(twin);
+        assert_eq!(set.len(), 1, "Eq twins must dedup");
+
+        let differs_in_level = HeaderPrefix {
+            compression_level: CompressionLevel::High,
+            ..baseline
+        };
+        let differs_in_version = HeaderPrefix {
+            version_raw: 3970,
+            ..baseline
+        };
+        set.insert(differs_in_level);
+        set.insert(differs_in_version);
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn version_helpers_match_worked_example() {
+        // The wiki narrative pins exactly one worked example
+        // (v3.92 → raw 3920). Anchor the standalone `major()` /
+        // `minor()` accessors against it so the helper signatures
+        // survive future refactors.
+        let h = HeaderPrefix {
+            version_raw: 3920,
+            compression_level: CompressionLevel::Normal,
+            header_tail_offset: HEADER_PREFIX_LEN,
+        };
+        assert_eq!(h.major(), 3);
+        assert_eq!(h.minor(), 92);
+        assert_eq!((h.major(), h.minor()), h.version());
     }
 
     #[test]

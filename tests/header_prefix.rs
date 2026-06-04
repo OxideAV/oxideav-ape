@@ -111,6 +111,51 @@ fn standard_conversion_traits_are_in_scope() {
 }
 
 #[test]
+fn compression_level_orders_per_documented_gradient() {
+    // The wiki §"Compression levels" lists profiles in ascending
+    // raw-value order (1000 → 5000). The crate's `Ord` impl is required
+    // to mirror that gradient, so a public-API caller can sort the type
+    // and rely on the documented ordering at the integration boundary.
+    let mut levels = vec![
+        CompressionLevel::Insane,
+        CompressionLevel::Fast,
+        CompressionLevel::ExtraHigh,
+        CompressionLevel::Normal,
+        CompressionLevel::High,
+    ];
+    levels.sort();
+    assert_eq!(levels, CompressionLevel::ALL.to_vec());
+
+    // The "at or above `High`" predicate is the canonical use case the
+    // ordering exists for.
+    let high_or_above: Vec<CompressionLevel> = CompressionLevel::ALL
+        .iter()
+        .copied()
+        .filter(|l| *l >= CompressionLevel::High)
+        .collect();
+    assert_eq!(
+        high_or_above,
+        vec![
+            CompressionLevel::High,
+            CompressionLevel::ExtraHigh,
+            CompressionLevel::Insane,
+        ]
+    );
+}
+
+#[test]
+fn header_prefix_version_helpers_are_in_scope() {
+    // The standalone `major()` / `minor()` accessors must agree with
+    // the tuple form at the public-API boundary. Anchored against the
+    // wiki worked example (v3.92 → raw 3920).
+    let bytes = [b'M', b'A', b'C', b' ', 0x50, 0x0F, 0xD0, 0x07];
+    let h = HeaderPrefix::parse(&bytes).expect("well-formed prefix");
+    assert_eq!(h.major(), 3);
+    assert_eq!(h.minor(), 92);
+    assert_eq!((h.major(), h.minor()), h.version());
+}
+
+#[test]
 fn from_str_recovers_every_documented_label_from_its_display_form() {
     use core::str::FromStr;
     for level in CompressionLevel::ALL {
