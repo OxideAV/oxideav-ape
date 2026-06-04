@@ -60,6 +60,29 @@ parsed prefix also exposes `major()` / `minor()` accessors alongside
 the `version()` tuple form so a call site that only needs one
 component skips the tuple destructure.
 
+`CompressionLevel` also implements `Default` — yielding `Normal`, the
+middle profile of the documented ascending gradient — so
+`..Default::default()` struct-update construction lands on a
+non-extremal profile.
+
+`CompressionLevel::{as_u16, from_u16, label}` and
+`HeaderPrefix::{new, version, major, minor, encode_prefix}` are all
+`const fn`, so a call site can build a well-formed prefix at compile
+time:
+
+```rust
+use oxideav_ape::{CompressionLevel, HeaderPrefix};
+
+const WORKED_EXAMPLE: HeaderPrefix = HeaderPrefix::new(3920, CompressionLevel::Normal);
+const ENCODED: [u8; 8] = WORKED_EXAMPLE.encode_prefix();
+assert_eq!(ENCODED, [b'M', b'A', b'C', b' ', 0x50, 0x0F, 0xD0, 0x07]);
+```
+
+The crate also re-exports `FILE_EXTENSION = "ape"` (the canonical
+lowercase extension the staged docs pin, without the leading dot) so
+a container demuxer can match on it without re-keying the literal at
+every call site.
+
 ## Crate features
 
 | Feature    | Default | Effect                                                                 |

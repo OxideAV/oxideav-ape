@@ -11,6 +11,26 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- [`header::HeaderPrefix::new`] — `const fn` constructor taking a
+  raw decimal-coded version and a typed [`header::CompressionLevel`].
+  Pins `header_tail_offset` to [`header::HEADER_PREFIX_LEN`] (8) so
+  call sites that build a prefix through the constructor cannot
+  accidentally drift the Phase 2 boundary.
+- [`header::FILE_EXTENSION`] — `&str` constant carrying the canonical
+  lowercase file extension the staged docs pin (`"ape"`, no leading
+  dot). Re-exported at the crate root.
+- `Default for CompressionLevel` — yields
+  [`CompressionLevel::Normal`], the middle profile of the documented
+  ascending raw-value gradient. Lets `..Default::default()`
+  struct-update construction land on a non-extremal profile.
+- [`header::CompressionLevel::as_u16`],
+  [`header::CompressionLevel::from_u16`], and
+  [`header::CompressionLevel::label`] are now `const fn` — usable in
+  `const` contexts (e.g. building static lookup tables).
+- [`header::HeaderPrefix::version`],
+  [`header::HeaderPrefix::major`], [`header::HeaderPrefix::minor`],
+  and [`header::HeaderPrefix::encode_prefix`] are now `const fn` —
+  usable in `const` contexts.
 - `Hash` derive on [`header::CompressionLevel`] and
   [`header::HeaderPrefix`] — both types can now index `HashMap` /
   `HashSet`. The compression-level Hash is paired with `Eq` such that

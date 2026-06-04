@@ -3,7 +3,9 @@
 //! the wiki worked example (v3.92 / level 2000), and the public
 //! crate-root re-exports.
 
-use oxideav_ape::{is_ape_magic, CompressionLevel, Error, HeaderPrefix, HEADER_PREFIX_LEN, MAGIC};
+use oxideav_ape::{
+    is_ape_magic, CompressionLevel, Error, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC,
+};
 
 #[test]
 fn magic_constant_is_ascii_mac_space() {
@@ -169,4 +171,35 @@ fn from_str_recovers_every_documented_label_from_its_display_form() {
         CompressionLevel::from_str("turbo").unwrap_err(),
         Error::UnknownCompressionLabel
     );
+}
+
+#[test]
+fn file_extension_is_re_exported_at_crate_root() {
+    // The staged docs pin `Extensions: ape` at the document head;
+    // surface the constant at the crate-root re-export boundary so a
+    // container demuxer matching on extensions reaches it directly.
+    assert_eq!(FILE_EXTENSION, "ape");
+}
+
+#[test]
+fn header_prefix_new_constructor_at_public_api() {
+    // `HeaderPrefix::new(version_raw, level)` is the const-fn
+    // constructor: it pins `header_tail_offset` to `HEADER_PREFIX_LEN`,
+    // round-trips through `encode_prefix` + `parse`, and is invokable
+    // in a `const` context at the public-API boundary.
+    const PREFIX: HeaderPrefix = HeaderPrefix::new(3920, CompressionLevel::Normal);
+    let bytes = PREFIX.encode_prefix();
+    let parsed = HeaderPrefix::parse(&bytes).expect("const-built prefix round-trips");
+    assert_eq!(parsed, PREFIX);
+    assert_eq!(PREFIX.header_tail_offset, HEADER_PREFIX_LEN);
+}
+
+#[test]
+fn compression_level_default_at_public_api_is_normal() {
+    // The crate's `Default for CompressionLevel` impl anchors on the
+    // middle profile of the documented ascending gradient. Surface the
+    // choice at the integration boundary so a downstream caller using
+    // `..Default::default()` struct-update form lands on `Normal`.
+    let level: CompressionLevel = Default::default();
+    assert_eq!(level, CompressionLevel::Normal);
 }

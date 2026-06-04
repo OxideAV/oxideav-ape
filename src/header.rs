@@ -28,6 +28,14 @@ pub const MAGIC: [u8; 4] = *b"MAC ";
 /// Length of the Phase 1 header prefix in bytes.
 pub const HEADER_PREFIX_LEN: usize = 8;
 
+/// Canonical lowercase file extension the staged docs pin at the
+/// document head (`Extensions: ape`). Surfaced as a `&str` constant
+/// so a container demuxer can match against it without re-keying the
+/// literal at every call site. The byte string does not carry the
+/// leading `.` separator — call sites that need the dotted form can
+/// prepend one.
+pub const FILE_EXTENSION: &str = "ape";
+
 /// Encoder profile carried in the 16-bit compression-level field.
 ///
 /// The wiki §"Compression levels" pins five named profiles in ascending
@@ -94,8 +102,9 @@ impl CompressionLevel {
     }
 
     /// Encode the profile as the raw little-endian u16 the file
-    /// carries.
-    pub fn as_u16(self) -> u16 {
+    /// carries. `const fn` so the call is usable in `const` contexts
+    /// (e.g. building static lookup tables).
+    pub const fn as_u16(self) -> u16 {
         match self {
             CompressionLevel::Fast => 1000,
             CompressionLevel::Normal => 2000,
@@ -107,8 +116,9 @@ impl CompressionLevel {
 
     /// Map a raw 16-bit field value to the named profile, or return
     /// [`Error::UnknownCompressionLevel`] if the value falls outside
-    /// the documented set.
-    pub fn from_u16(raw: u16) -> Result<Self> {
+    /// the documented set. `const fn` so the call is usable in `const`
+    /// contexts.
+    pub const fn from_u16(raw: u16) -> Result<Self> {
         match raw {
             1000 => Ok(CompressionLevel::Fast),
             2000 => Ok(CompressionLevel::Normal),
@@ -119,8 +129,9 @@ impl CompressionLevel {
         }
     }
 
-    /// Human-readable label per the wiki narrative.
-    pub fn label(self) -> &'static str {
+    /// Human-readable label per the wiki narrative. `const fn` so the
+    /// call is usable in `const` contexts.
+    pub const fn label(self) -> &'static str {
         match self {
             CompressionLevel::Fast => "fast",
             CompressionLevel::Normal => "normal",
@@ -128,6 +139,21 @@ impl CompressionLevel {
             CompressionLevel::ExtraHigh => "extra high",
             CompressionLevel::Insane => "insane",
         }
+    }
+}
+
+impl Default for CompressionLevel {
+    /// `Normal` (raw value `2000`) — the staged docs list the five
+    /// profiles in ascending raw-value order (`Fast` 1000 → `Insane`
+    /// 5000), and the profile carrying the unmodified "normal" label
+    /// is the natural anchor for a `Default` since it neither under-
+    /// nor over-commits the encoder side of the field. The choice
+    /// avoids picking either extremum (`Fast` / `Insane`) as a
+    /// default, which would bias `..CompressionLevel::default()`
+    /// struct-update constructions toward one end of the documented
+    /// gradient.
+    fn default() -> Self {
+        CompressionLevel::Normal
     }
 }
 
@@ -211,6 +237,20 @@ pub struct HeaderPrefix {
 }
 
 impl HeaderPrefix {
+    /// Construct a `HeaderPrefix` from a raw decimal-coded version and
+    /// a typed [`CompressionLevel`]. `header_tail_offset` is fixed to
+    /// [`HEADER_PREFIX_LEN`] (8) — the only value Phase 1 ever
+    /// publishes for the boundary. `const fn` so the constructor is
+    /// usable in `const` contexts (e.g. building a static lookup of
+    /// well-known prefixes).
+    pub const fn new(version_raw: u16, compression_level: CompressionLevel) -> Self {
+        HeaderPrefix {
+            version_raw,
+            compression_level,
+            header_tail_offset: HEADER_PREFIX_LEN,
+        }
+    }
+
     /// Return the documented decimal-coded major/minor pair.
     ///
     /// Encoders write the version as `major * 1000 + minor * 10`,
@@ -218,8 +258,9 @@ impl HeaderPrefix {
     /// decode is `(raw / 1000, (raw % 1000) / 10)`. Spec versions
     /// below v3 are pre-history and not covered by the staged docs;
     /// the helper still returns the arithmetic decomposition without
-    /// gating on a minimum.
-    pub fn version(&self) -> (u16, u16) {
+    /// gating on a minimum. `const fn` so the helper is usable in
+    /// `const` contexts.
+    pub const fn version(&self) -> (u16, u16) {
         (self.major(), self.minor())
     }
 
@@ -228,7 +269,8 @@ impl HeaderPrefix {
     /// (`version_raw = 3920`) the major is `3`. Equivalent to
     /// `self.version().0` but available as a one-shot accessor so call
     /// sites that only need the major component skip the tuple destructure.
-    pub fn major(&self) -> u16 {
+    /// `const fn` so the accessor is usable in `const` contexts.
+    pub const fn major(&self) -> u16 {
         self.version_raw / 1000
     }
 
@@ -237,7 +279,8 @@ impl HeaderPrefix {
     /// (`version_raw = 3920`) the minor is `92`. Equivalent to
     /// `self.version().1` but available as a one-shot accessor so call
     /// sites that only need the minor component skip the tuple destructure.
-    pub fn minor(&self) -> u16 {
+    /// `const fn` so the accessor is usable in `const` contexts.
+    pub const fn minor(&self) -> u16 {
         (self.version_raw % 1000) / 10
     }
 
@@ -260,13 +303,22 @@ impl HeaderPrefix {
     }
 
     /// Encode the prefix into an 8-byte little-endian buffer that
-    /// round-trips through [`HeaderPrefix::parse`].
-    pub fn encode_prefix(&self) -> [u8; HEADER_PREFIX_LEN] {
-        let mut out = [0u8; HEADER_PREFIX_LEN];
-        out[0..4].copy_from_slice(&MAGIC);
-        out[4..6].copy_from_slice(&self.version_raw.to_le_bytes());
-        out[6..8].copy_from_slice(&self.compression_level.as_u16().to_le_bytes());
-        out
+    /// round-trips through [`HeaderPrefix::parse`]. `const fn` so the
+    /// encoder is usable in `const` contexts (e.g. building a static
+    /// well-formed prefix at compile time).
+    pub const fn encode_prefix(&self) -> [u8; HEADER_PREFIX_LEN] {
+        let raw_level = self.compression_level.as_u16().to_le_bytes();
+        let raw_version = self.version_raw.to_le_bytes();
+        [
+            MAGIC[0],
+            MAGIC[1],
+            MAGIC[2],
+            MAGIC[3],
+            raw_version[0],
+            raw_version[1],
+            raw_level[0],
+            raw_level[1],
+        ]
     }
 }
 
@@ -653,6 +705,105 @@ mod tests {
             assert!(rest.ends_with(')'));
             let parsed = CompressionLevel::from_str(label).unwrap();
             assert_eq!(parsed, level);
+        }
+    }
+
+    #[test]
+    fn compression_level_default_is_normal() {
+        // `Normal` is the documented middle profile of the ascending
+        // raw-value gradient. Anchor the choice at the unit-test
+        // boundary so an accidental change to the `Default` impl gets
+        // a hard failure.
+        assert_eq!(CompressionLevel::default(), CompressionLevel::Normal);
+        // Struct-update construction picks the default up by name.
+        let h = HeaderPrefix {
+            version_raw: 3920,
+            compression_level: CompressionLevel::default(),
+            header_tail_offset: HEADER_PREFIX_LEN,
+        };
+        assert_eq!(h.compression_level, CompressionLevel::Normal);
+    }
+
+    #[test]
+    fn file_extension_is_canonical_lowercase_ape() {
+        // The staged docs pin `Extensions: ape` at the document head.
+        // The constant must mirror it byte-for-byte without the
+        // leading dot.
+        assert_eq!(FILE_EXTENSION, "ape");
+        assert!(!FILE_EXTENSION.starts_with('.'));
+    }
+
+    #[test]
+    fn compression_level_accessors_are_const_eval_capable() {
+        // `as_u16`, `from_u16`, and `label` are `const fn`, so each one
+        // can be invoked at compile time. The assertions below exist
+        // primarily so the compiler is forced to const-evaluate every
+        // call — a regression that demoted any accessor from `const fn`
+        // would surface here as a "non-const expression in const
+        // context" build error long before the runtime check fires.
+        const FAST_RAW: u16 = CompressionLevel::Fast.as_u16();
+        const NORMAL_LABEL: &str = CompressionLevel::Normal.label();
+        const INSANE_FROM_RAW: Result<CompressionLevel> = CompressionLevel::from_u16(5000);
+        const REJECTED: Result<CompressionLevel> = CompressionLevel::from_u16(1234);
+
+        assert_eq!(FAST_RAW, 1000);
+        assert_eq!(NORMAL_LABEL, "normal");
+        assert_eq!(INSANE_FROM_RAW, Ok(CompressionLevel::Insane));
+        assert_eq!(REJECTED, Err(Error::UnknownCompressionLevel(1234)));
+    }
+
+    #[test]
+    fn header_prefix_new_constructor_fixes_tail_offset_to_eight() {
+        // The Phase 1 constructor is required to pin
+        // `header_tail_offset` to `HEADER_PREFIX_LEN` (8). No other
+        // value is reachable through the constructor surface, so call
+        // sites that build `HeaderPrefix` through `new` cannot accidentally
+        // drift the boundary the per-version tail parser will pick up at.
+        let h = HeaderPrefix::new(3920, CompressionLevel::Normal);
+        assert_eq!(h.version_raw, 3920);
+        assert_eq!(h.compression_level, CompressionLevel::Normal);
+        assert_eq!(h.header_tail_offset, HEADER_PREFIX_LEN);
+
+        // Const-eval the constructor at compile time so a future demotion
+        // surfaces as a build error.
+        const PREFIX: HeaderPrefix = HeaderPrefix::new(3970, CompressionLevel::High);
+        assert_eq!(PREFIX.version_raw, 3970);
+        assert_eq!(PREFIX.compression_level, CompressionLevel::High);
+    }
+
+    #[test]
+    fn header_prefix_accessors_are_const_eval_capable() {
+        // `version`, `major`, `minor`, and `encode_prefix` are all
+        // `const fn` so they can be invoked at compile time. As with
+        // the `CompressionLevel` accessor test above, the const
+        // contexts here exist to force the compiler to const-evaluate
+        // each call — any regression that demoted a method to non-const
+        // would surface as a build error.
+        const PREFIX: HeaderPrefix = HeaderPrefix::new(3920, CompressionLevel::Normal);
+        const VERSION_PAIR: (u16, u16) = PREFIX.version();
+        const MAJOR: u16 = PREFIX.major();
+        const MINOR: u16 = PREFIX.minor();
+        const ENCODED: [u8; HEADER_PREFIX_LEN] = PREFIX.encode_prefix();
+
+        assert_eq!(VERSION_PAIR, (3, 92));
+        assert_eq!(MAJOR, 3);
+        assert_eq!(MINOR, 92);
+        // The wiki worked example pairs v3.92 + level 2000 with the
+        // little-endian bytes `0x50 0x0F 0xD0 0x07` past the magic.
+        assert_eq!(ENCODED, [b'M', b'A', b'C', b' ', 0x50, 0x0F, 0xD0, 0x07]);
+    }
+
+    #[test]
+    fn header_prefix_new_round_trips_through_parse() {
+        // Whatever the constructor builds must survive an `encode_prefix`
+        // round-trip back through `parse`. Covers every documented
+        // compression level so the constructor is interchangeable with
+        // direct struct-literal construction at the encoder side.
+        for level in CompressionLevel::ALL {
+            let built = HeaderPrefix::new(3970, level);
+            let bytes = built.encode_prefix();
+            let parsed = HeaderPrefix::parse(&bytes).expect("constructor round-trips");
+            assert_eq!(parsed, built);
         }
     }
 

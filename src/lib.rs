@@ -72,7 +72,7 @@ pub mod error;
 pub mod header;
 
 pub use error::{Error, Result};
-pub use header::{CompressionLevel, HeaderPrefix, HEADER_PREFIX_LEN, MAGIC};
+pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
 
 /// Crate identifier used by the future `oxideav-core` registry entry.
 pub const CRATE_NAME: &str = "oxideav-ape";
