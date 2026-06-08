@@ -83,6 +83,50 @@ lowercase extension the staged docs pin, without the leading dot) so
 a container demuxer can match on it without re-keying the literal at
 every call site.
 
+## Stereo channel-decorrelation reconstructor
+
+The wiki §"Channel Correlation" pins exactly one closed form for
+recovering the original `(L, R)` pair from the encoder's decorrelated
+`(X, Y)` pair:
+
+```text
+  R = X - Y / 2
+  L = R + Y
+```
+
+The crate exposes this as a standalone primitive (no constants, no
+state, no per-version branching), since the closed form is the only
+algebra the staged docs commit to for the channel-decorrelation
+layer. Two spellings are exposed side-by-side because the staged
+docs do not disambiguate between Rust integer division (rounds
+toward zero) and an arithmetic right shift (rounds toward `-∞`):
+
+```rust
+use oxideav_ape::{reconstruct_pair, reconstruct_pair_arith_shift, decorrelate_pair};
+
+// Closed form with `Y / 2` (Rust integer division).
+let (left, right) = reconstruct_pair(10, 4);
+assert_eq!((left, right), (12, 8));
+
+// Closed form with `Y >> 1` (arithmetic right shift); the two
+// spellings agree for even Y and disagree for odd negative Y only.
+let (l, r) = reconstruct_pair_arith_shift(10, 4);
+assert_eq!((l, r), (12, 8));
+
+// The inverse map — recover `(X, Y)` from `(L, R)`.
+let (x, y) = decorrelate_pair(12, 8);
+assert_eq!((x, y), (10, 4));
+```
+
+`reconstruct_block` / `reconstruct_block_arith_shift` are the
+buffer-at-a-time variants and surface
+`Error::ChannelLengthMismatch` if the four slices disagree on length.
+All four pair-level entry points are `const fn`.
+
+The IIR predictor cascade, the residual range decoder, and the
+`k`-parameter recurrence remain Phase 2+ inputs (the wiki sketches
+them but pins no constants).
+
 ## Crate features
 
 | Feature    | Default | Effect                                                                 |

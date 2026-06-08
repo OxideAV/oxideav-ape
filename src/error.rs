@@ -37,6 +37,21 @@ pub enum Error {
     /// parameters, frame count, seek table) returns this until the
     /// per-version layouts land under further docs.
     NotImplemented,
+    /// The stereo-decorrelation block reconstructor was handed input
+    /// and output slices that did not all agree on length. The
+    /// reconstructor reads `x[i]` and `y[i]` in lockstep and writes
+    /// `left[i]` and `right[i]` per sample, so any of the four slices
+    /// disagreeing on `len()` is a caller-side bug.
+    ChannelLengthMismatch {
+        /// Length of the `X` (decorrelated) input slice.
+        x: usize,
+        /// Length of the `Y` (decorrelated) input slice.
+        y: usize,
+        /// Length of the `left` output slice.
+        left: usize,
+        /// Length of the `right` output slice.
+        right: usize,
+    },
 }
 
 impl core::fmt::Display for Error {
@@ -56,6 +71,10 @@ impl core::fmt::Display for Error {
             ),
             Error::NotImplemented => f.write_str(
                 "oxideav-ape: feature not implemented in Phase 1 (header prefix parser only)",
+            ),
+            Error::ChannelLengthMismatch { x, y, left, right } => write!(
+                f,
+                "oxideav-ape: channel-decorrelation slice lengths disagree — x={x}, y={y}, left={left}, right={right}"
             ),
         }
     }

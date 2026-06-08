@@ -11,6 +11,32 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Stereo channel-decorrelation reconstructor**
+  ([`decorrelate`] module) — implements the closed form the staged
+  wiki §"Channel Correlation" pins:
+  ```text
+    R = X - Y / 2
+    L = R + Y
+  ```
+  Exposes [`decorrelate::reconstruct_pair`] (Rust integer division)
+  and [`decorrelate::reconstruct_pair_arith_shift`] (arithmetic right
+  shift) side-by-side because the staged docs do not disambiguate
+  which rounding the reference encoder uses; the two spellings agree
+  for even `Y` and disagree for odd negative `Y` only. The inverse
+  map [`decorrelate::decorrelate_pair`] recovers `(X, Y)` from
+  `(L, R)`. Buffer-at-a-time helpers
+  [`decorrelate::reconstruct_block`] /
+  [`decorrelate::reconstruct_block_arith_shift`] take pre-allocated
+  output slices and surface
+  [`Error::ChannelLengthMismatch`] on input/output length disagreement.
+  All five entry points are re-exported at the crate root; the four
+  pair-level forms are `const fn`.
+- `Error::ChannelLengthMismatch { x, y, left, right }` — surfaces a
+  caller-side bug where the four slices handed to the block
+  reconstructor disagree on length. Carries every length in the
+  display message so the diagnostic identifies the mismatch
+  unambiguously. The binary `parse` path is statically forbidden from
+  emitting this variant; the anti-fuzz harness rejects it explicitly.
 - [`header::HeaderPrefix::new`] — `const fn` constructor taking a
   raw decimal-coded version and a typed [`header::CompressionLevel`].
   Pins `header_tail_offset` to [`header::HEADER_PREFIX_LEN`] (8) so

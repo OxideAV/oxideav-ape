@@ -844,6 +844,9 @@ mod tests {
                     Err(Error::NotImplemented) => panic!(
                         "NotImplemented leaked out of parse() at offset {offset}; Phase 1 reserves this for the per-version tail parser"
                     ),
+                    Err(Error::ChannelLengthMismatch { .. }) => panic!(
+                        "ChannelLengthMismatch leaked out of parse() at offset {offset}; that variant belongs to the decorrelation block reconstructor, not the binary prefix parser"
+                    ),
                 }
             }
         }

@@ -21,15 +21,27 @@
 //!   [`ExtraHigh`][`header::CompressionLevel::ExtraHigh`] /
 //!   [`Insane`][`header::CompressionLevel::Insane`]).
 //!
+//! Phase 1 also exposes the stereo-channel decorrelation
+//! reconstructor the wiki §"Channel Correlation" pins
+//! ([`decorrelate::reconstruct_pair`] +
+//! [`decorrelate::reconstruct_pair_arith_shift`] +
+//! [`decorrelate::reconstruct_block`] +
+//! [`decorrelate::reconstruct_block_arith_shift`] +
+//! [`decorrelate::decorrelate_pair`]). The closed-form recipe
+//! `R = X - Y/2`, `L = R + Y` is the **only** algebra the staged
+//! docs commit to for the channel-decorrelation layer, so we ship it
+//! as a standalone primitive that a future per-version pipeline can
+//! plug in unchanged.
+//!
 //! Everything past offset 8 — version-specific sound-parameters,
 //! frame count, seek table, optional embedded WAV header, the range
-//! decoder, the IIR-predictor cascade, and the channel-decorrelation
-//! reconstructor — is **out of scope for Phase 1**. The staged docs
-//! enumerate those layers only at the algorithm-sketch level and do
-//! not pin the per-version header tail formats, the IIR coefficient
-//! tables, the residual-coding `k`-parameter recurrence, the range
-//! coder's frequency-table bounds, or the v3.97-vs-v3.98 layout
-//! delta. Filling those in is a documented Phase 2 input.
+//! decoder, and the IIR-predictor cascade — is **out of scope for
+//! Phase 1**. The staged docs enumerate those layers only at the
+//! algorithm-sketch level and do not pin the per-version header tail
+//! formats, the IIR coefficient tables, the residual-coding
+//! `k`-parameter recurrence, the range coder's frequency-table
+//! bounds, or the v3.97-vs-v3.98 layout delta. Filling those in is a
+//! documented Phase 2 input.
 //!
 //! ## Allowed reference material (clean-room wall)
 //!
@@ -68,9 +80,14 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod decorrelate;
 pub mod error;
 pub mod header;
 
+pub use decorrelate::{
+    decorrelate_pair, reconstruct_block, reconstruct_block_arith_shift, reconstruct_pair,
+    reconstruct_pair_arith_shift,
+};
 pub use error::{Error, Result};
 pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
 
