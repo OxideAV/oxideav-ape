@@ -9,6 +9,19 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+## [0.0.2](https://github.com/OxideAV/oxideav-ape/compare/v0.0.1...v0.0.2) - 2026-06-10
+
+### Other
+
+- Phase 1: adaptive IIR-predictor per-value step (wiki §"IIR Filtering")
+- Phase 1: stereo channel-decorrelation reconstructor (wiki §"Channel Correlation")
+- drop release-plz.toml — use release-plz defaults across the workspace
+- Phase 1 depth: const-fn accessors + HeaderPrefix::new + Default + FILE_EXTENSION
+- Phase 1 depth: Hash + Ord on CompressionLevel, major/minor accessors
+- Phase 1 ergonomics: CompressionLevel::ALL + standard conversion traits
+- Phase 1 polish: Display impls + single-byte-mutation coverage
+- release v0.0.1
+
 ### Added
 
 - **Adaptive IIR-predictor per-value step** ([`predictor`] module) —
