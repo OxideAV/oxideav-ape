@@ -123,9 +123,41 @@ buffer-at-a-time variants and surface
 `Error::ChannelLengthMismatch` if the four slices disagree on length.
 All four pair-level entry points are `const fn`.
 
-The IIR predictor cascade, the residual range decoder, and the
-`k`-parameter recurrence remain Phase 2+ inputs (the wiki sketches
-them but pins no constants).
+## Adaptive IIR-predictor step
+
+The wiki §"IIR Filtering" pins a per-value recurrence for the adaptive
+integer predictor: a prediction dot product `t` over the last `order`
+samples, a sign-of-input adaptation of the coefficient vector `par[]`,
+and `out = in + t`:
+
+```rust
+use oxideav_ape::{predict_step, predict_dot, adapt_sign};
+
+let history = [1i32, 0, -1];
+let adapt_ref = [2i32, 2, 2];
+let mut par = [3i32, 4, 5];
+// t = 1*3 + 0*4 + (-1)*5 = -2; in = 9 -> out = 7.
+let out = predict_step(9, &history, &adapt_ref, &mut par).unwrap();
+assert_eq!(out, 7);
+// in > 0 -> par += adapt_ref (read AFTER the prediction).
+assert_eq!(par, [5, 6, 7]);
+```
+
+`predict_step_self_ref` is the reading where the snapshot's `delta[i]`
+adaptation window aliases the `delta[-order + i]` prediction window;
+`predict_dot` exposes the dot product alone and `adapt_sign` the
+`-1 / 0 / +1` branch selector. The prediction is read from `par[]`
+**before** the sign adaptation mutates it, matching the snapshot's
+statement order. A history/coefficient order disagreement surfaces
+`Error::PredictorOrderMismatch`.
+
+The wiki's trailing "correct delta[] array - different for many
+versions" line is the one part of the recurrence the staged docs
+explicitly decline to pin, so the step leaves the `delta[]` history
+window to the caller. The residual range decoder, the `k`-parameter
+recurrence, the per-version filter orders / coefficient tables, and the
+cascade wiring that chains 1-3 filters remain Phase 2+ inputs (the wiki
+sketches them but pins no constants).
 
 ## Crate features
 
@@ -145,8 +177,10 @@ decoder needs:
 
 - Per-version header-tail layout (sound parameters, frame count,
   seek table, optional embedded WAV header).
-- IIR-predictor coefficient tables and per-compression-level filter
-  orders.
+- IIR-predictor coefficient tables, per-compression-level filter
+  orders, and the per-version `delta[]` history maintenance ("correct
+  delta[] array - different for many versions") that advances the
+  prediction window between steps.
 - Residual-coding `k`-parameter recurrence and its per-version
   initial-state details.
 - Range-decoder frequency-table bounds and renormalisation rules.

@@ -11,6 +11,30 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Adaptive IIR-predictor per-value step** ([`predictor`] module) —
+  transcribes the per-value recurrence the staged wiki §"IIR Filtering"
+  pins: the order-`N` prediction dot product `t`, the sign-of-input
+  adaptation of the coefficient vector `par[]`, and `out = in + t`.
+  Exposes [`predictor::predict_step`] (explicit adaptation-reference
+  window), [`predictor::predict_step_self_ref`] (adaptation window
+  aliased to the prediction history — the reading where the snapshot's
+  `delta[i]` and `delta[-order + i]` denote the same samples),
+  [`predictor::predict_dot`] (the dot product alone), and
+  [`predictor::adapt_sign`] (the `-1 / 0 / +1` branch selector). The
+  step reads the prediction from `par[]` **before** the sign adaptation
+  mutates it, matching the snapshot's statement order. All four are
+  re-exported at the crate root. The trailing "correct delta[] array -
+  different for many versions" history-maintenance line is the one part
+  of the recurrence the staged docs decline to pin, so the step leaves
+  the `delta[]` window to the caller rather than guessing the unpinned
+  per-version ring update. Arithmetic is `i64`-accumulated with a
+  wrapping narrow / wrapping `par[]` update so full-`i32` extremes do
+  not panic in debug builds.
+- `Error::PredictorOrderMismatch { history, par }` — surfaces a
+  caller-side bug where the IIR-predictor step's history window and
+  coefficient vector disagree on the predictor order. The binary
+  `parse` path is statically forbidden from emitting this variant; the
+  header anti-fuzz harness rejects it explicitly.
 - **Stereo channel-decorrelation reconstructor**
   ([`decorrelate`] module) — implements the closed form the staged
   wiki §"Channel Correlation" pins:

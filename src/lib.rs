@@ -33,15 +33,26 @@
 //! as a standalone primitive that a future per-version pipeline can
 //! plug in unchanged.
 //!
+//! Phase 1 also exposes the adaptive IIR-predictor **per-value step**
+//! the wiki §"IIR Filtering" pins ([`predictor::predict_step`] +
+//! [`predictor::predict_step_self_ref`] + [`predictor::predict_dot`] +
+//! [`predictor::adapt_sign`]). The snapshot fixes the prediction dot
+//! product, the sign-of-input adaptation of the coefficient vector, and
+//! `out = in + t`; it explicitly declines to pin the trailing
+//! "correct delta[] array - different for many versions" history
+//! maintenance, so the step primitive leaves the history window to the
+//! caller rather than guessing the unpinned per-version ring update.
+//!
 //! Everything past offset 8 — version-specific sound-parameters,
-//! frame count, seek table, optional embedded WAV header, the range
-//! decoder, and the IIR-predictor cascade — is **out of scope for
-//! Phase 1**. The staged docs enumerate those layers only at the
-//! algorithm-sketch level and do not pin the per-version header tail
-//! formats, the IIR coefficient tables, the residual-coding
-//! `k`-parameter recurrence, the range coder's frequency-table
-//! bounds, or the v3.97-vs-v3.98 layout delta. Filling those in is a
-//! documented Phase 2 input.
+//! frame count, seek table, optional embedded WAV header, and the range
+//! decoder — plus the per-version `delta[]` history maintenance and the
+//! cascade wiring that chains 1-3 filters of different order, remains
+//! **out of scope for Phase 1**. The staged docs enumerate those layers
+//! only at the algorithm-sketch level and do not pin the per-version
+//! header tail formats, the IIR coefficient tables / filter orders, the
+//! residual-coding `k`-parameter recurrence, the range coder's
+//! frequency-table bounds, or the v3.97-vs-v3.98 layout delta. Filling
+//! those in is a documented Phase 2 input.
 //!
 //! ## Allowed reference material (clean-room wall)
 //!
@@ -83,6 +94,7 @@
 pub mod decorrelate;
 pub mod error;
 pub mod header;
+pub mod predictor;
 
 pub use decorrelate::{
     decorrelate_pair, reconstruct_block, reconstruct_block_arith_shift, reconstruct_pair,
@@ -90,6 +102,7 @@ pub use decorrelate::{
 };
 pub use error::{Error, Result};
 pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
+pub use predictor::{adapt_sign, predict_dot, predict_step, predict_step_self_ref};
 
 /// Crate identifier used by the future `oxideav-core` registry entry.
 pub const CRATE_NAME: &str = "oxideav-ape";

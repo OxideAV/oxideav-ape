@@ -847,6 +847,9 @@ mod tests {
                     Err(Error::ChannelLengthMismatch { .. }) => panic!(
                         "ChannelLengthMismatch leaked out of parse() at offset {offset}; that variant belongs to the decorrelation block reconstructor, not the binary prefix parser"
                     ),
+                    Err(Error::PredictorOrderMismatch { .. }) => panic!(
+                        "PredictorOrderMismatch leaked out of parse() at offset {offset}; that variant belongs to the IIR-predictor step, not the binary prefix parser"
+                    ),
                 }
             }
         }

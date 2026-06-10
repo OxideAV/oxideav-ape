@@ -52,6 +52,17 @@ pub enum Error {
         /// Length of the `right` output slice.
         right: usize,
     },
+    /// The adaptive IIR-predictor step was handed a history window and
+    /// a parameter vector that did not agree on the predictor order.
+    /// The wiki §"IIR Filtering" recurrence iterates `i = 0..order`
+    /// over both the prediction window `delta[-order + i]` and the
+    /// coefficient vector `par[i]`, so the two must share `len()`.
+    PredictorOrderMismatch {
+        /// Length of the prediction `history` window.
+        history: usize,
+        /// Length of the adaptive `par` coefficient vector.
+        par: usize,
+    },
 }
 
 impl core::fmt::Display for Error {
@@ -75,6 +86,10 @@ impl core::fmt::Display for Error {
             Error::ChannelLengthMismatch { x, y, left, right } => write!(
                 f,
                 "oxideav-ape: channel-decorrelation slice lengths disagree — x={x}, y={y}, left={left}, right={right}"
+            ),
+            Error::PredictorOrderMismatch { history, par } => write!(
+                f,
+                "oxideav-ape: IIR-predictor history/par lengths disagree on order — history={history}, par={par}"
             ),
         }
     }
