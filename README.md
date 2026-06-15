@@ -197,17 +197,13 @@ Only the workspace-local mirror at
 `docs/audio/ape/wiki/Monkeys_Audio.wiki` (a verbatim CC-BY-SA
 multimedia.cx snapshot fetched 2026-05-06) was consulted. The crate
 deliberately does **not** consult, quote, paraphrase, or cross-check
-against:
+against any reference codec source, any third-party reimplementation,
+any `.ape` reverse-engineering writeup beyond the cited wiki snapshot,
+or any other online resource.
 
-- the Monkey's Audio reference source (`MAC.exe` distribution),
-- FFmpeg / `libav*`,
-- any third-party `.ape` reverse-engineering writeup beyond the cited
-  wiki snapshot, or
-- any online resource of any kind.
-
-Black-box validation against the reference `mac` binary remains
-available as a future-round option once enough of the decoder lands
-to emit comparable PCM output.
+Black-box validation against the reference binary remains available as a
+future option once enough of the decoder lands to emit comparable PCM
+output.
 
 ## License
 
