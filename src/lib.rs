@@ -43,16 +43,27 @@
 //! maintenance, so the step primitive leaves the history window to the
 //! caller rather than guessing the unpinned per-version ring update.
 //!
+//! Phase 2 adds the **range-coder residual frequency model** and the
+//! **per-level adaptive-filter cascade configuration** the clean-room
+//! tables under `docs/audio/ape-cleanroom/tables/` pin as functional
+//! data ([`freq_model`] + [`filter_config`]). The frequency model ships
+//! the two version-split cumulative-frequency tables (`< 3990` vs
+//! `>= 3990`), the symbol ↔ cumulative-frequency interval lookups the
+//! table shape dictates, and the documented scalar bounds
+//! (`MODEL_ELEMENTS = 64`, `RANGE_TOTAL_WIDTH = 65536`). The filter
+//! config ships the `(order, shift)` cascade — fast `1000` runs no
+//! adaptive filter, insane `5000` runs a three-stage `1280/256/16`
+//! cascade.
+//!
 //! Everything past offset 8 — version-specific sound-parameters,
-//! frame count, seek table, optional embedded WAV header, and the range
-//! decoder — plus the per-version `delta[]` history maintenance and the
-//! cascade wiring that chains 1-3 filters of different order, remains
-//! **out of scope for Phase 1**. The staged docs enumerate those layers
-//! only at the algorithm-sketch level and do not pin the per-version
-//! header tail formats, the IIR coefficient tables / filter orders, the
-//! residual-coding `k`-parameter recurrence, the range coder's
-//! frequency-table bounds, or the v3.97-vs-v3.98 layout delta. Filling
-//! those in is a documented Phase 2 input.
+//! frame count, seek table, optional embedded WAV header — plus the
+//! range decoder's renormalisation / byte-input **state machine**, the
+//! per-version `delta[]` history maintenance, and the residual-coding
+//! `k`-parameter recurrence remain **out of scope**. The staged
+//! `tables/` pin the frequency model as data but the cleanroom `spec/`
+//! directory that would describe the coder's renormalisation narrative
+//! has not yet been authored, so the byte-input state machine is left to
+//! a later phase rather than guessed.
 //!
 //! ## Allowed reference material (clean-room wall)
 //!
@@ -93,6 +104,8 @@
 
 pub mod decorrelate;
 pub mod error;
+pub mod filter_config;
+pub mod freq_model;
 pub mod header;
 pub mod predictor;
 
@@ -101,6 +114,12 @@ pub use decorrelate::{
     reconstruct_pair_arith_shift,
 };
 pub use error::{Error, Result};
+pub use filter_config::{cascade_for_level, FilterStage, FILTER_STAGES};
+pub use freq_model::{
+    counts_for_version, symbol_for_cum_freq, symbol_interval, COUNTS_GE3990, COUNTS_LE3980,
+    FREQ_MODEL_VERSION_SPLIT, MODEL_ELEMENTS, POWERS_OF_TWO_MINUS_ONE, RANGE_OVERFLOW_SHIFT,
+    RANGE_TOTAL_WIDTH,
+};
 pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
 pub use predictor::{adapt_sign, predict_dot, predict_step, predict_step_self_ref};
 

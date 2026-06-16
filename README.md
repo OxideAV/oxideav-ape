@@ -159,6 +159,59 @@ recurrence, the per-version filter orders / coefficient tables, and the
 cascade wiring that chains 1-3 filters remain Phase 2+ inputs (the wiki
 sketches them but pins no constants).
 
+## Range-coder residual frequency model
+
+The wiki §"Residual Coding" pins that each residual is split into a low
+part and a high part, "coding each part separately with range coder".
+The clean-room extractor staged the exact cumulative symbol-frequency
+table the high part is range-coded against, under
+`docs/audio/ape-cleanroom/tables/`, in two version-split variants. The
+crate loads both via `include_str!` + a `const` CSV parser (no numeric
+literal retyped) and exposes the lookups the table shape itself
+dictates:
+
+```rust
+use oxideav_ape::{counts_for_version, symbol_interval, symbol_for_cum_freq,
+                  MODEL_ELEMENTS, RANGE_TOTAL_WIDTH};
+
+// file_version < 3990 uses one model, >= 3990 the other.
+let counts = counts_for_version(3920);
+// Symbol 0 occupies the cumulative-frequency interval [0, 14824).
+assert_eq!(symbol_interval(counts, 0), Some((0, 14824)));
+// The inverse: a code value in that interval decodes back to symbol 0.
+assert_eq!(symbol_for_cum_freq(counts, 14823), 0);
+// The model has 64 symbols whose widths sum to the total range 65536.
+assert_eq!(MODEL_ELEMENTS, 64);
+assert_eq!(RANGE_TOTAL_WIDTH, 65536);
+```
+
+`COUNTS_LE3980` / `COUNTS_GE3990` are the two cumulative tables;
+`FREQ_MODEL_VERSION_SPLIT` (3990) is the selector boundary; the
+`powers_of_two_minus_one` bit-reader mask table is exposed as
+`POWERS_OF_TWO_MINUS_ONE`. The range decoder's renormalisation /
+byte-input **state machine** is *not* pinned by the staged tables and
+the cleanroom `spec/` narrative has not yet been authored, so it is
+deliberately left to a later phase rather than guessed.
+
+## Adaptive-filter cascade configuration
+
+The wiki §"General Details" pins that audio data applies "1-3 IIR
+filters of different order". The extractor staged the exact
+`(order, shift)` pairs per compression level
+(`tables/filter_config.csv`); the crate loads them via `include_str!`
+and exposes `cascade_for_level`:
+
+```rust
+use oxideav_ape::{cascade_for_level, CompressionLevel};
+
+// Fast runs no adaptive filter (order 0).
+assert_eq!(cascade_for_level(CompressionLevel::Fast)[0].order, 0);
+// Insane is a three-stage cascade: order 1280 (=1024+256), then 256, 16.
+let insane = cascade_for_level(CompressionLevel::Insane);
+assert_eq!(insane.len(), 3);
+assert_eq!(insane[0].order, 1280);
+```
+
 ## Crate features
 
 | Feature    | Default | Effect                                                                 |
@@ -169,37 +222,50 @@ sketches them but pins no constants).
 only the file-header parser API surface and the crate-local
 `Error` enum, with no framework dependency tree.
 
-## Out of scope for Phase 1
+## Out of scope (Phase 3+)
 
-The wiki snapshot describes the codec at the algorithm-sketch level
-but does not pin the constants or per-version layouts a sample-exact
-decoder needs:
+The staged clean-room `tables/` pin the frequency model and the
+filter cascade as functional data, but the narrative `spec/` directory
+that would describe the coder's control flow has not yet been authored.
+These remain out of scope until it is:
 
 - Per-version header-tail layout (sound parameters, frame count,
   seek table, optional embedded WAV header).
-- IIR-predictor coefficient tables, per-compression-level filter
-  orders, and the per-version `delta[]` history maintenance ("correct
-  delta[] array - different for many versions") that advances the
-  prediction window between steps.
+- The per-compression-level **filter orders** are now pinned
+  (`cascade_for_level`), but the per-version `delta[]` history
+  maintenance ("correct delta[] array - different for many versions")
+  that advances the prediction window between steps is not.
 - Residual-coding `k`-parameter recurrence and its per-version
-  initial-state details.
-- Range-decoder frequency-table bounds and renormalisation rules.
+  initial-state details (the model the `k` low/high split feeds is
+  now pinned; the recurrence that computes `k` is not).
+- Range-decoder **renormalisation / byte-input state machine** (the
+  frequency-table bounds are now pinned via `freq_model`; the coder's
+  refill loop and the `range`-scaling that maps a code value to a
+  cumulative frequency are narrative the staged tables do not commit
+  to).
 - Channel-decorrelation reconstruction outside the documented
   `R = X - Y/2`, `L = R + Y` skeleton.
 - `register!` framework wire-up and decoder factory.
 
-These are documented Phase 2+ inputs that depend on additional
-clean-room reference material being staged under `docs/audio/ape/`.
+These depend on the cleanroom `spec/` (Specifier role) being authored
+under `docs/audio/ape-cleanroom/spec/`.
 
 ## Clean-room wall
 
-Only the workspace-local mirror at
+Two clean-room sources were consulted: the workspace-local mirror at
 `docs/audio/ape/wiki/Monkeys_Audio.wiki` (a verbatim CC-BY-SA
-multimedia.cx snapshot fetched 2026-05-06) was consulted. The crate
-deliberately does **not** consult, quote, paraphrase, or cross-check
-against any reference codec source, any third-party reimplementation,
-any `.ape` reverse-engineering writeup beyond the cited wiki snapshot,
-or any other online resource.
+multimedia.cx behavioural snapshot fetched 2026-05-06), and the
+extractor's functional-data tables under
+`docs/audio/ape-cleanroom/tables/` (`counts_le3980`, `counts_ge3990`,
+`powers_of_two_minus_one`, `filter_config`, plus the `scalars` bounds).
+The four CSV tables this crate ships under `src/tables/` are
+byte-for-byte copies of those extractor files, loaded via
+`include_str!` so no numeric literal is retyped. The crate deliberately
+does **not** consult, quote, paraphrase, or cross-check against the
+cleanroom `reference/source/` (the Monkey's Audio SDK), FFmpeg
+`libavcodec/ape*`, any third-party reimplementation, any `.ape`
+reverse-engineering writeup beyond the cited sources, or any other
+online resource.
 
 Black-box validation against the reference binary remains available as a
 future option once enough of the decoder lands to emit comparable PCM
