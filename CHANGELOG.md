@@ -11,6 +11,32 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Range-coder residual frequency model** ([`freq_model`] module) —
+  loads the two version-split cumulative symbol-frequency tables the
+  clean-room extractor staged under `docs/audio/ape-cleanroom/tables/`
+  (`counts_le3980` for `file_version < 3990`, `counts_ge3990` for
+  `>= 3990`) plus
+  the `powers_of_two_minus_one` bit-reader mask table. The four CSVs
+  ship under `src/tables/` (byte-for-byte copies of the extractor
+  files) and are parsed at compile time by a `const` CSV reader, so no
+  numeric literal is retyped. Exposes `COUNTS_LE3980` / `COUNTS_GE3990`,
+  the `counts_for_version` selector (boundary `FREQ_MODEL_VERSION_SPLIT
+  = 3990`), the `symbol_interval` (symbol → `[low, width)`) and
+  `symbol_for_cum_freq` (cumulative-frequency → symbol, binary search)
+  lookups the table shape dictates, and the scalar bounds
+  `MODEL_ELEMENTS = 64`, `RANGE_TOTAL_WIDTH = 65536`,
+  `RANGE_OVERFLOW_SHIFT = 16`. The range decoder's renormalisation /
+  byte-input state machine is *not* shipped — it is narrative the
+  staged tables do not pin and the cleanroom `spec/` is not yet
+  authored.
+- **Adaptive-filter cascade configuration** ([`filter_config`] module)
+  — loads the per-compression-level `(order, shift)` cascade from
+  `tables/filter_config.csv` (also `include_str!`-loaded under
+  `src/tables/`). Exposes `FILTER_STAGES`, the `FilterStage` struct, and
+  `cascade_for_level`, which returns the 1-3 stages for a level in
+  application order: fast `1000` runs a single `order == 0` (no-filter)
+  stage; insane `5000` runs a three-stage `1280 (=1024+256) / 256 / 16`
+  cascade.
 - **Adaptive IIR-predictor per-value step** ([`predictor`] module) —
   transcribes the per-value recurrence the staged wiki §"IIR Filtering"
   pins: the order-`N` prediction dot product `t`, the sign-of-input
