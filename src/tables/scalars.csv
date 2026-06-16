@@ -1,0 +1,8 @@
+name,value,role
+model_elements,64,number of frequency-model symbols; counts table has this many widths
+range_overflow_total_width,65536,total cumulative-frequency range (top of the counts table)
+range_overflow_shift,16,shift used when range-decoding the overflow symbol index
+ksum_pivot_divisor,32,"pivot value = max(KSum / this, 1) for the >=3990 value decode"
+stage1_filter_weight,31,fixed weight of the order-1 integer prediction stage (x*weight>>shift)
+stage1_filter_shift,5,right shift paired with stage1_filter_weight
+predictor_history_seed,317,initial adaptation coefficient seeded into the order-1 history slot

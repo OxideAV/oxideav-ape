@@ -55,6 +55,19 @@
 //! adaptive filter, insane `5000` runs a three-stage `1280/256/16`
 //! cascade.
 //!
+//! Phase 2 also exposes the **scalar range-coder / predictor constants**
+//! the extractor pinned in `tables/scalars.csv` ([`scalars`]) and the one
+//! closed form the scalar `role` text spells out verbatim — the
+//! **stage-1 order-1 integer prediction** `x * 31 >> 5`
+//! ([`scalars::stage1_predict`]). The cleanroom README lists the
+//! stage-1 order-1 predictor as in-scope; it is a stateless closed form
+//! distinct from the adaptive cascade recurrence. The `ksum_pivot_divisor`
+//! (`32`) and `predictor_history_seed` (`317`) scalars are surfaced as
+//! named constants for a later phase, but the recurrences they feed (the
+//! `>= 3990` `k`-parameter value decode and the per-version
+//! adaptation-window seeding) are narrative the staged tables do not pin,
+//! so no logic is wired around them.
+//!
 //! Everything past offset 8 — version-specific sound-parameters,
 //! frame count, seek table, optional embedded WAV header — plus the
 //! range decoder's renormalisation / byte-input **state machine**, the
@@ -107,6 +120,7 @@ pub mod filter_config;
 pub mod freq_model;
 pub mod header;
 pub mod predictor;
+pub mod scalars;
 
 pub use decorrelate::{
     decorrelate_pair, reconstruct_block, reconstruct_block_arith_shift, reconstruct_pair,
@@ -121,6 +135,10 @@ pub use freq_model::{
 };
 pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
 pub use predictor::{adapt_sign, predict_dot, predict_step, predict_step_self_ref};
+pub use scalars::{
+    stage1_predict, KSUM_PIVOT_DIVISOR, PREDICTOR_HISTORY_SEED, STAGE1_FILTER_SHIFT,
+    STAGE1_FILTER_WEIGHT,
+};
 
 /// Crate identifier used by the future `oxideav-core` registry entry.
 pub const CRATE_NAME: &str = "oxideav-ape";

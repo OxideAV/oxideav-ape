@@ -212,6 +212,45 @@ assert_eq!(insane.len(), 3);
 assert_eq!(insane[0].order, 1280);
 ```
 
+## Scalar constants + stage-1 order-1 prediction
+
+The clean-room extractor staged a `scalars.csv` table of scalar
+functional constants alongside the frequency model
+(`docs/audio/ape-cleanroom/tables/scalars.csv`). The crate loads it
+byte-for-byte via `include_str!` + a `const` name-keyed reader (no
+numeric literal retyped) and exposes all seven pinned scalars as named
+constants, plus the one closed form the scalar `role` text spells out
+verbatim — the **stage-1 order-1 integer prediction**
+`x * stage1_filter_weight >> stage1_filter_shift` (`x * 31 >> 5`):
+
+```rust
+use oxideav_ape::{stage1_predict, STAGE1_FILTER_WEIGHT, STAGE1_FILTER_SHIFT};
+
+// 64 * 31 = 1984; 1984 >> 5 = 62.
+assert_eq!(stage1_predict(64), 62);
+assert_eq!(stage1_predict(64), (64 * STAGE1_FILTER_WEIGHT) >> STAGE1_FILTER_SHIFT);
+// Arithmetic (floor) shift: -31 >> 5 = -1, not 0.
+assert_eq!(stage1_predict(-1), -1);
+```
+
+The cleanroom workspace lists the stage-1 order-1 predictor as
+in-scope; it is a stateless closed form — no per-version branching, no
+`delta[]` history — distinct from the adaptive cascade recurrence. The
+multiply is widened to `i64` so a full-`i32` input cannot overflow the
+intermediate before the arithmetic right shift narrows it back, and the
+function is `const fn`.
+
+The full scalar set is `MODEL_ELEMENTS = 64`,
+`RANGE_OVERFLOW_TOTAL_WIDTH = 65536`, `RANGE_OVERFLOW_SHIFT = 16`,
+`KSUM_PIVOT_DIVISOR = 32`, `STAGE1_FILTER_WEIGHT = 31`,
+`STAGE1_FILTER_SHIFT = 5`, `PREDICTOR_HISTORY_SEED = 317`. The first
+three cross-check (via a unit test) against the `freq_model` module's
+independently-sourced copies. `KSUM_PIVOT_DIVISOR` and
+`PREDICTOR_HISTORY_SEED` are surfaced as data only — the recurrences
+they feed (the `>= 3990` `k`-parameter value decode and the per-version
+adaptation-window seeding) are narrative the staged tables do not pin,
+so no logic is wired around them.
+
 ## Crate features
 
 | Feature    | Default | Effect                                                                 |
@@ -257,10 +296,10 @@ Two clean-room sources were consulted: the workspace-local mirror at
 multimedia.cx behavioural snapshot fetched 2026-05-06), and the
 extractor's functional-data tables under
 `docs/audio/ape-cleanroom/tables/` (`counts_le3980`, `counts_ge3990`,
-`powers_of_two_minus_one`, `filter_config`, plus the `scalars` bounds).
-The four CSV tables this crate ships under `src/tables/` are
-byte-for-byte copies of those extractor files, loaded via
-`include_str!` so no numeric literal is retyped. The crate deliberately
+`powers_of_two_minus_one`, `filter_config`, and `scalars`). The five
+CSV tables this crate ships under `src/tables/` are byte-for-byte copies
+of those extractor files, loaded via `include_str!` so no numeric
+literal is retyped. The crate deliberately
 does **not** consult, quote, paraphrase, or cross-check against any
 external implementation source, any reverse-engineering writeup beyond
 the cited sources, or any other online resource.

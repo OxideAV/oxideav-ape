@@ -11,6 +11,26 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Scalar constants + stage-1 order-1 integer prediction**
+  ([`scalars`] module) — loads the extractor's `scalars.csv` table
+  (`docs/audio/ape-cleanroom/tables/`) byte-for-byte under `src/tables/`
+  via `include_str!` + a `const` name-keyed CSV reader, so no numeric
+  literal is retyped. Exposes all seven pinned scalars as named
+  constants — `MODEL_ELEMENTS = 64`, `RANGE_OVERFLOW_TOTAL_WIDTH =
+  65536`, `RANGE_OVERFLOW_SHIFT = 16`, `KSUM_PIVOT_DIVISOR = 32`,
+  `STAGE1_FILTER_WEIGHT = 31`, `STAGE1_FILTER_SHIFT = 5`,
+  `PREDICTOR_HISTORY_SEED = 317` — and ships the one closed form the
+  scalar `role` text spells out verbatim: the stage-1 order-1 integer
+  prediction `stage1_predict(x) = x * 31 >> 5` (arithmetic shift, `i64`
+  intermediate, `const fn`). The cleanroom README lists the stage-1
+  order-1 predictor as in-scope; it is a stateless closed form, distinct
+  from the adaptive cascade recurrence. `KSUM_PIVOT_DIVISOR` and
+  `PREDICTOR_HISTORY_SEED` are surfaced as data only — the recurrences
+  they feed (the `>= 3990` `k`-parameter value decode and the
+  per-version adaptation-window seeding) are narrative the staged tables
+  do not pin, so no logic is wired around them. A cross-check test
+  asserts the three shared bounds agree with the [`freq_model`] module's
+  independently-sourced copies.
 - **Range-coder residual frequency model** ([`freq_model`] module) —
   loads the two version-split cumulative symbol-frequency tables the
   clean-room extractor staged under `docs/audio/ape-cleanroom/tables/`
