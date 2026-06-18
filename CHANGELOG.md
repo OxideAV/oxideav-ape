@@ -9,6 +9,24 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+## [0.0.2](https://github.com/OxideAV/oxideav-ape/compare/v0.0.1...v0.0.2) - 2026-06-18
+
+### Other
+
+- FilterCascade aggregate view over pinned (order, shift) cascade data
+- ship per-symbol freq width tables (freqs_le3980/ge3990) + provenance cross-check
+- scalars module — pinned scalar constants + stage-1 order-1 integer prediction
+- range-coder frequency model + per-level filter cascade from cleanroom tables
+- refresh to current status, drop per-round changelog cruft
+- Phase 1: adaptive IIR-predictor per-value step (wiki §"IIR Filtering")
+- Phase 1: stereo channel-decorrelation reconstructor (wiki §"Channel Correlation")
+- drop release-plz.toml — use release-plz defaults across the workspace
+- Phase 1 depth: const-fn accessors + HeaderPrefix::new + Default + FILE_EXTENSION
+- Phase 1 depth: Hash + Ord on CompressionLevel, major/minor accessors
+- Phase 1 ergonomics: CompressionLevel::ALL + standard conversion traits
+- Phase 1 polish: Display impls + single-byte-mutation coverage
+- release v0.0.1
+
 ### Added
 
 - **`FilterCascade` aggregate view** ([`filter_config`] module) — a
