@@ -11,6 +11,24 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Per-symbol frequency width tables + cross-check** ([`freq_model`]
+  module) — ships the clean-room extractor's two independently-staged
+  per-symbol width tables (`freqs_le3980.csv` for `file_version < 3990`,
+  `freqs_ge3990.csv` for `>= 3990`), copied byte-for-byte under
+  `src/tables/` and parsed by the existing `const` CSV reader so no
+  numeric literal is retyped. Exposes `FREQS_LE3980` / `FREQS_GE3990`,
+  the `freqs_for_version` selector, and `symbol_width(freqs, s)` — the
+  encoder-direction width lookup without a subtraction. These widths are
+  transcribed from a different reference array than the cumulative
+  `counts_*` tables, so the module now **asserts the two
+  independently-extracted tables agree** (`freqs[s] == counts[s + 1] -
+  counts[s]` for all 64 symbols, both version variants), and that each
+  width table sums to `RANGE_TOTAL_WIDTH = 65536` — a provenance
+  cross-check the previously-derived widths could not provide. Adds 7
+  `freq_model` unit tests (lib suite 84 → 91). The range decoder's
+  renormalisation / byte-input state machine remains out of scope: it is
+  narrative the staged `tables/` do not pin and the cleanroom `spec/`
+  directory has not yet been authored.
 - **Scalar constants + stage-1 order-1 integer prediction**
   ([`scalars`] module) — loads the extractor's `scalars.csv` table
   (`docs/audio/ape-cleanroom/tables/`) byte-for-byte under `src/tables/`

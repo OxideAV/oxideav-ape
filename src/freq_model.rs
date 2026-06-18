@@ -12,10 +12,16 @@
 //! * `counts_ge3990.csv` — the model for `file_version >= 3990`.
 //!
 //! Both are monotonically increasing `u32` arrays of length 65, running
-//! `0 .. 65536`; the 64 successive differences are the per-symbol widths
-//! (`freqs_*` in `tables/`, which we derive here rather than carrying a
-//! second copy). The total width `65536 == 1 << 16` and the symbol count
-//! `64` are the [`scalars`] bounds the extractor pinned.
+//! `0 .. 65536`; the 64 successive differences are the per-symbol widths.
+//! The extractor *also* staged those per-symbol widths directly, as a
+//! second functional-data table transcribed from a different array in the
+//! reference (`freqs_le3980.csv` / `freqs_ge3990.csv`). We ship both: the
+//! width table is the data the encoder-direction lookup needs without a
+//! subtraction, and carrying it independently lets the crate **assert**
+//! the two separately-extracted tables agree (`freq[i] ==
+//! counts[i + 1] - counts[i]`) — a provenance cross-check the derived
+//! form could not provide. The total width `65536 == 1 << 16` and the
+//! symbol count `64` are the [`scalars`] bounds the extractor pinned.
 //!
 //! This module ships the **data + the two interval lookups the table
 //! shape itself dictates** — symbol → `[low, width)` interval, and
@@ -110,6 +116,23 @@ pub static COUNTS_LE3980: [u32; MODEL_ELEMENTS + 1] =
 pub static COUNTS_GE3990: [u32; MODEL_ELEMENTS + 1] =
     parse_u32_col(include_str!("tables/counts_ge3990.csv"));
 
+/// Per-symbol frequency widths for `file_version < 3990`, length
+/// `MODEL_ELEMENTS`. Each entry is the half-open width of the symbol's
+/// cumulative-frequency interval; the entries sum to
+/// [`RANGE_TOTAL_WIDTH`]. This is the extractor's directly-transcribed
+/// width table (`freqs_le3980.csv`), distinct from the cumulative
+/// [`COUNTS_LE3980`] — the two are cross-checked for agreement in this
+/// module's tests. Loaded from `src/tables/freqs_le3980.csv`.
+pub static FREQS_LE3980: [u32; MODEL_ELEMENTS] =
+    parse_u32_col(include_str!("tables/freqs_le3980.csv"));
+
+/// Per-symbol frequency widths for `file_version >= 3990`, length
+/// `MODEL_ELEMENTS`. Companion width table to the cumulative
+/// [`COUNTS_GE3990`]; see [`FREQS_LE3980`]. Loaded from
+/// `src/tables/freqs_ge3990.csv`.
+pub static FREQS_GE3990: [u32; MODEL_ELEMENTS] =
+    parse_u32_col(include_str!("tables/freqs_ge3990.csv"));
+
 /// Bit-reader mask table `value[n] = (2^n) - 1`, `n = 0..=32`
 /// (`value[32]` saturates at `u32::MAX`). Loaded from
 /// `src/tables/powers_of_two_minus_one.csv`.
@@ -127,6 +150,33 @@ pub fn counts_for_version(file_version: u16) -> &'static [u32; MODEL_ELEMENTS + 
     } else {
         &COUNTS_LE3980
     }
+}
+
+/// Select the per-symbol width table for a given `file_version`.
+///
+/// `< 3990` → [`FREQS_LE3980`]; `>= 3990` → [`FREQS_GE3990`]. The
+/// boundary is [`FREQ_MODEL_VERSION_SPLIT`]; mirrors
+/// [`counts_for_version`].
+#[inline]
+pub fn freqs_for_version(file_version: u16) -> &'static [u32; MODEL_ELEMENTS] {
+    if file_version >= FREQ_MODEL_VERSION_SPLIT {
+        &FREQS_GE3990
+    } else {
+        &FREQS_LE3980
+    }
+}
+
+/// The half-open frequency width of `symbol` in a per-symbol width
+/// `freqs` table — `freqs[symbol]`, or `None` if `symbol >=
+/// MODEL_ELEMENTS`. This reads the directly-staged width table; it
+/// equals the [`symbol_interval`] width derived from the cumulative
+/// table (asserted in this module's tests).
+#[inline]
+pub fn symbol_width(freqs: &[u32; MODEL_ELEMENTS], symbol: usize) -> Option<u32> {
+    if symbol >= MODEL_ELEMENTS {
+        return None;
+    }
+    Some(freqs[symbol])
 }
 
 /// The `[low, width)` cumulative-frequency interval of `symbol` in a
@@ -282,6 +332,67 @@ mod tests {
             }
             assert_eq!(sum, RANGE_TOTAL_WIDTH);
         }
+    }
+
+    #[test]
+    fn width_tables_have_documented_shape() {
+        assert_eq!(FREQS_LE3980.len(), MODEL_ELEMENTS);
+        assert_eq!(FREQS_GE3990.len(), MODEL_ELEMENTS);
+    }
+
+    #[test]
+    fn staged_width_table_matches_cumulative_differences() {
+        // The two tables are extracted independently from different
+        // arrays in the reference; the width table must equal the
+        // successive differences of the cumulative table. This is the
+        // provenance cross-check carrying the second copy buys us.
+        for (counts, freqs) in [
+            (&COUNTS_LE3980, &FREQS_LE3980),
+            (&COUNTS_GE3990, &FREQS_GE3990),
+        ] {
+            for s in 0..MODEL_ELEMENTS {
+                assert_eq!(
+                    freqs[s],
+                    counts[s + 1] - counts[s],
+                    "width[{s}] disagrees with cumulative difference"
+                );
+                // And it must equal the symbol_interval width.
+                assert_eq!(symbol_interval(counts, s).unwrap().1, freqs[s]);
+                assert_eq!(symbol_width(freqs, s), Some(freqs[s]));
+            }
+        }
+    }
+
+    #[test]
+    fn widths_sum_to_total_range() {
+        for freqs in [&FREQS_LE3980, &FREQS_GE3990] {
+            let sum: u32 = freqs.iter().sum();
+            assert_eq!(sum, RANGE_TOTAL_WIDTH);
+            // Every symbol has a non-zero width.
+            assert!(freqs.iter().all(|&w| w >= 1));
+        }
+    }
+
+    #[test]
+    fn width_selector_splits_at_3990() {
+        assert!(std::ptr::eq(freqs_for_version(3920), &FREQS_LE3980));
+        assert!(std::ptr::eq(freqs_for_version(3989), &FREQS_LE3980));
+        assert!(std::ptr::eq(freqs_for_version(3990), &FREQS_GE3990));
+        assert!(std::ptr::eq(freqs_for_version(3999), &FREQS_GE3990));
+    }
+
+    #[test]
+    fn symbol_width_rejects_out_of_range_symbol() {
+        assert_eq!(symbol_width(&FREQS_LE3980, MODEL_ELEMENTS), None);
+        assert_eq!(symbol_width(&FREQS_GE3990, MODEL_ELEMENTS + 3), None);
+    }
+
+    #[test]
+    fn first_widths_anchor_the_width_tables() {
+        // freqs_le3980 begins 14824, 13400; freqs_ge3990 begins 19578.
+        assert_eq!(symbol_width(&FREQS_LE3980, 0), Some(14824));
+        assert_eq!(symbol_width(&FREQS_LE3980, 1), Some(13400));
+        assert_eq!(symbol_width(&FREQS_GE3990, 0), Some(19578));
     }
 
     #[test]

@@ -188,7 +188,20 @@ assert_eq!(RANGE_TOTAL_WIDTH, 65536);
 `COUNTS_LE3980` / `COUNTS_GE3990` are the two cumulative tables;
 `FREQ_MODEL_VERSION_SPLIT` (3990) is the selector boundary; the
 `powers_of_two_minus_one` bit-reader mask table is exposed as
-`POWERS_OF_TWO_MINUS_ONE`. The range decoder's renormalisation /
+`POWERS_OF_TWO_MINUS_ONE`.
+
+The extractor also staged the **per-symbol frequency widths** as a
+second, independently-transcribed table (`freqs_le3980.csv` /
+`freqs_ge3990.csv`, drawn from a different array in the reference than
+the cumulative `counts_*`). The crate ships both — `FREQS_LE3980` /
+`FREQS_GE3990`, with `freqs_for_version` and `symbol_width(freqs, s)`
+giving the encoder-direction width without a subtraction. Carrying the
+two tables independently lets a unit test **assert they agree**
+(`freqs[s] == counts[s + 1] - counts[s]` for all 64 symbols, both
+version variants), a provenance cross-check the derived widths could
+not provide.
+
+The range decoder's renormalisation /
 byte-input **state machine** is *not* pinned by the staged tables and
 the cleanroom `spec/` narrative has not yet been authored, so it is
 deliberately left to a later phase rather than guessed.
@@ -296,7 +309,8 @@ Two clean-room sources were consulted: the workspace-local mirror at
 multimedia.cx behavioural snapshot fetched 2026-05-06), and the
 extractor's functional-data tables under
 `docs/audio/ape-cleanroom/tables/` (`counts_le3980`, `counts_ge3990`,
-`powers_of_two_minus_one`, `filter_config`, and `scalars`). The five
+`freqs_le3980`, `freqs_ge3990`, `powers_of_two_minus_one`,
+`filter_config`, and `scalars`). The seven
 CSV tables this crate ships under `src/tables/` are byte-for-byte copies
 of those extractor files, loaded via `include_str!` so no numeric
 literal is retyped. The crate deliberately

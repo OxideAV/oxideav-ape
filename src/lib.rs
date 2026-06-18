@@ -50,7 +50,13 @@
 //! the two version-split cumulative-frequency tables (`< 3990` vs
 //! `>= 3990`), the symbol ↔ cumulative-frequency interval lookups the
 //! table shape dictates, and the documented scalar bounds
-//! (`MODEL_ELEMENTS = 64`, `RANGE_TOTAL_WIDTH = 65536`). The filter
+//! (`MODEL_ELEMENTS = 64`, `RANGE_TOTAL_WIDTH = 65536`). It also ships
+//! the extractor's **independently-transcribed per-symbol width tables**
+//! ([`freq_model::FREQS_LE3980`] / [`freq_model::FREQS_GE3990`] +
+//! [`freq_model::freqs_for_version`] + [`freq_model::symbol_width`]),
+//! cross-checked at test time against the cumulative tables' successive
+//! differences — a provenance guarantee the derived widths could not
+//! give. The filter
 //! config ships the `(order, shift)` cascade — fast `1000` runs no
 //! adaptive filter, insane `5000` runs a three-stage `1280/256/16`
 //! cascade.
@@ -129,9 +135,9 @@ pub use decorrelate::{
 pub use error::{Error, Result};
 pub use filter_config::{cascade_for_level, FilterStage, FILTER_STAGES};
 pub use freq_model::{
-    counts_for_version, symbol_for_cum_freq, symbol_interval, COUNTS_GE3990, COUNTS_LE3980,
-    FREQ_MODEL_VERSION_SPLIT, MODEL_ELEMENTS, POWERS_OF_TWO_MINUS_ONE, RANGE_OVERFLOW_SHIFT,
-    RANGE_TOTAL_WIDTH,
+    counts_for_version, freqs_for_version, symbol_for_cum_freq, symbol_interval, symbol_width,
+    COUNTS_GE3990, COUNTS_LE3980, FREQS_GE3990, FREQS_LE3980, FREQ_MODEL_VERSION_SPLIT,
+    MODEL_ELEMENTS, POWERS_OF_TWO_MINUS_ONE, RANGE_OVERFLOW_SHIFT, RANGE_TOTAL_WIDTH,
 };
 pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
 pub use predictor::{adapt_sign, predict_dot, predict_step, predict_step_self_ref};
