@@ -11,6 +11,21 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **`FilterCascade` aggregate view** ([`filter_config`] module) — a
+  fixed-capacity, no-alloc view over the same pinned `(order, shift)`
+  cascade data `cascade_for_level` returns as a `Vec`. `for_level`
+  gathers the 1-3 stages in `filter_index` application order into an
+  inline buffer sized by the new `MAX_CASCADE_DEPTH = 3` constant; the
+  view exposes `level()`, `stages()`, `len()`, `is_empty()` (true only
+  for the fast / `1000` no-filter level's single `order == 0` stage),
+  `stage(i)`, `total_order()` (the summed prediction-tap count a decode
+  path uses to size its combined history window — `1280 + 256 + 16 =
+  1552` for insane), and `max_order()` (the widest single stage). It is
+  a pure reshaping of the Extractor-staged `filter_config.csv`: it
+  introduces no control flow for *running* the stages over a residual
+  buffer, which the staged tables do not pin. Adds 6 `filter_config`
+  unit tests, cross-checking the inline view against the allocating
+  `cascade_for_level` form (lib suite 91 → 97).
 - **Per-symbol frequency width tables + cross-check** ([`freq_model`]
   module) — ships the clean-room extractor's two independently-staged
   per-symbol width tables (`freqs_le3980.csv` for `file_version < 3990`,

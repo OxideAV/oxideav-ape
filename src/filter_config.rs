@@ -107,6 +107,119 @@ pub fn cascade_for_level(level: CompressionLevel) -> Vec<FilterStage> {
     stages
 }
 
+/// The documented maximum cascade depth: the staged `filter_config.csv`
+/// pins at most three stages for any one compression level (the insane /
+/// `5000` profile). Surfaced as a named constant so a fixed-capacity
+/// caller can size a backing array without hard-coding `3`.
+pub const MAX_CASCADE_DEPTH: usize = 3;
+
+/// A fixed-capacity, no-alloc view of one compression level's adaptive-
+/// filter cascade.
+///
+/// [`cascade_for_level`] allocates a `Vec`; this is the same pinned
+/// `(order, shift)` data carried inline so a decode path can read the
+/// cascade — and the aggregate quantities it derives from it — without an
+/// allocation. It is a pure reshaping of the Extractor-staged
+/// `filter_config.csv` data: every method below reads the staged stages
+/// or sums their pinned `order` fields. No control-flow narrative is
+/// introduced — how the stages are *run* over a residual buffer is
+/// downstream work the staged tables do not pin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FilterCascade {
+    /// The compression level this cascade belongs to.
+    level: CompressionLevel,
+    /// The cascade stages in application order, filled `0..len`.
+    stages: [FilterStage; MAX_CASCADE_DEPTH],
+    /// Number of populated entries in `stages` (`1..=MAX_CASCADE_DEPTH`).
+    len: usize,
+}
+
+impl FilterCascade {
+    /// Build the cascade view for `level` from the staged stage table.
+    ///
+    /// The stages are gathered in `filter_index` order, exactly as
+    /// [`cascade_for_level`] returns them, but into an inline fixed-size
+    /// buffer rather than a heap `Vec`. Every documented level populates
+    /// between one and [`MAX_CASCADE_DEPTH`] stages.
+    pub fn for_level(level: CompressionLevel) -> Self {
+        let code = level.as_u16();
+        let mut stages = [FilterStage {
+            level_code: code,
+            filter_index: 0,
+            order: 0,
+            shift: 0,
+        }; MAX_CASCADE_DEPTH];
+        let mut len = 0usize;
+        // Walk the staged table in filter_index order. The table has at
+        // most MAX_CASCADE_DEPTH rows per level, so a single ascending
+        // pass over the filter_index keyspace fills `stages` in order
+        // without a sort or an allocation.
+        for idx in 0..MAX_CASCADE_DEPTH as u8 {
+            for s in FILTER_STAGES.iter() {
+                if s.level_code == code && s.filter_index == idx {
+                    stages[len] = *s;
+                    len += 1;
+                }
+            }
+        }
+        FilterCascade { level, stages, len }
+    }
+
+    /// The compression level this cascade belongs to.
+    #[inline]
+    pub const fn level(&self) -> CompressionLevel {
+        self.level
+    }
+
+    /// The cascade stages in application order (`filter_index` ascending).
+    #[inline]
+    pub fn stages(&self) -> &[FilterStage] {
+        &self.stages[..self.len]
+    }
+
+    /// Number of stages in the cascade (`1..=MAX_CASCADE_DEPTH`).
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether the cascade applies no adaptive filtering — true exactly
+    /// when the single stage has `order == 0` (the fast / `1000` level).
+    /// The cascade is never empty (every level has at least one staged
+    /// row), so this is distinct from a zero-length collection.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.stages().iter().all(|s| s.order == 0)
+    }
+
+    /// The stage at application position `index` (`0` runs first), or
+    /// `None` if `index >= len`.
+    #[inline]
+    pub fn stage(&self, index: usize) -> Option<FilterStage> {
+        self.stages().get(index).copied()
+    }
+
+    /// The sum of every stage's IIR filter `order`.
+    ///
+    /// This is the total number of prediction taps the cascade reads
+    /// across all stages — the quantity a decode path uses to size the
+    /// combined history window. Computed by summing the pinned `order`
+    /// fields; widened to `usize` so the `1280 + 256 + 16` insane total
+    /// cannot overflow the `u16` per-stage field type.
+    #[inline]
+    pub fn total_order(&self) -> usize {
+        self.stages().iter().map(|s| s.order as usize).sum()
+    }
+
+    /// The largest single-stage IIR filter `order` in the cascade — the
+    /// widest history window any one stage reads. For the insane profile
+    /// this is the `1280`-tap lead stage.
+    #[inline]
+    pub fn max_order(&self) -> u16 {
+        self.stages().iter().map(|s| s.order).max().unwrap_or(0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +283,106 @@ mod tests {
     fn cascade_depth_never_exceeds_three() {
         for level in CompressionLevel::ALL {
             assert!(cascade_for_level(level).len() <= 3);
+        }
+        assert_eq!(MAX_CASCADE_DEPTH, 3);
+    }
+
+    #[test]
+    fn cascade_view_stages_match_the_vec_form() {
+        // The inline FilterCascade view must carry exactly the same
+        // stages, in the same application order, as the Vec-returning
+        // cascade_for_level — it is the same staged data, reshaped.
+        for level in CompressionLevel::ALL {
+            let view = FilterCascade::for_level(level);
+            assert_eq!(view.level(), level);
+            assert_eq!(view.stages(), cascade_for_level(level).as_slice());
+            assert_eq!(view.len(), cascade_for_level(level).len());
+        }
+    }
+
+    #[test]
+    fn cascade_view_stage_accessor_indexes_in_application_order() {
+        // 4000 -> stage0 (256,13), stage1 (32,10), no stage2.
+        let view = FilterCascade::for_level(CompressionLevel::ExtraHigh);
+        assert_eq!(view.stage(0).map(|s| (s.order, s.shift)), Some((256, 13)));
+        assert_eq!(view.stage(1).map(|s| (s.order, s.shift)), Some((32, 10)));
+        assert_eq!(view.stage(2), None);
+    }
+
+    #[test]
+    fn cascade_view_total_order_sums_every_stage() {
+        // fast: order 0 -> total 0. normal: 16. high: 64.
+        assert_eq!(
+            FilterCascade::for_level(CompressionLevel::Fast).total_order(),
+            0
+        );
+        assert_eq!(
+            FilterCascade::for_level(CompressionLevel::Normal).total_order(),
+            16
+        );
+        assert_eq!(
+            FilterCascade::for_level(CompressionLevel::High).total_order(),
+            64
+        );
+        // extra high: 256 + 32 = 288.
+        assert_eq!(
+            FilterCascade::for_level(CompressionLevel::ExtraHigh).total_order(),
+            256 + 32
+        );
+        // insane: 1280 + 256 + 16 = 1552.
+        assert_eq!(
+            FilterCascade::for_level(CompressionLevel::Insane).total_order(),
+            1280 + 256 + 16
+        );
+    }
+
+    #[test]
+    fn cascade_view_max_order_is_the_widest_stage() {
+        assert_eq!(
+            FilterCascade::for_level(CompressionLevel::Fast).max_order(),
+            0
+        );
+        assert_eq!(
+            FilterCascade::for_level(CompressionLevel::ExtraHigh).max_order(),
+            256
+        );
+        // Insane's widest stage is the 1280-tap lead.
+        assert_eq!(
+            FilterCascade::for_level(CompressionLevel::Insane).max_order(),
+            1280
+        );
+    }
+
+    #[test]
+    fn cascade_view_is_empty_only_for_the_no_filter_fast_level() {
+        // Fast is the single order-0 stage: no adaptive filtering.
+        assert!(FilterCascade::for_level(CompressionLevel::Fast).is_empty());
+        // Every other documented level runs at least one real filter.
+        for level in [
+            CompressionLevel::Normal,
+            CompressionLevel::High,
+            CompressionLevel::ExtraHigh,
+            CompressionLevel::Insane,
+        ] {
+            let view = FilterCascade::for_level(level);
+            assert!(!view.is_empty());
+            // The view is never zero-length: a non-filtering level still
+            // carries its one order-0 stage row.
+            assert!(view.len() >= MAX_CASCADE_DEPTH.min(1));
+            assert!(!view.stages().is_empty());
+        }
+    }
+
+    #[test]
+    fn cascade_view_total_order_agrees_with_summing_the_vec() {
+        // Cross-check the inline total against an independent sum over the
+        // allocating form, for every level.
+        for level in CompressionLevel::ALL {
+            let independent: usize = cascade_for_level(level)
+                .iter()
+                .map(|s| s.order as usize)
+                .sum();
+            assert_eq!(FilterCascade::for_level(level).total_order(), independent);
         }
     }
 }

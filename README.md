@@ -225,6 +225,27 @@ assert_eq!(insane.len(), 3);
 assert_eq!(insane[0].order, 1280);
 ```
 
+`FilterCascade` is a fixed-capacity, no-alloc view over the same pinned
+`(order, shift)` data — the form a decode path uses to read the cascade
+and the aggregate quantities derived from it (total tap count, widest
+stage) without a heap allocation. It is a pure reshaping of the staged
+`filter_config.csv`; it introduces no control flow for *running* the
+stages, which the staged tables do not pin.
+
+```rust
+use oxideav_ape::{FilterCascade, CompressionLevel, MAX_CASCADE_DEPTH};
+
+let insane = FilterCascade::for_level(CompressionLevel::Insane);
+assert_eq!(insane.len(), 3);
+// Total prediction taps across all stages: 1280 + 256 + 16.
+assert_eq!(insane.total_order(), 1552);
+// The widest single stage — the lead 1280-tap filter.
+assert_eq!(insane.max_order(), 1280);
+// Fast carries one order-0 stage: present, but no adaptive filtering.
+assert!(FilterCascade::for_level(CompressionLevel::Fast).is_empty());
+assert_eq!(MAX_CASCADE_DEPTH, 3);
+```
+
 ## Scalar constants + stage-1 order-1 prediction
 
 The clean-room extractor staged a `scalars.csv` table of scalar

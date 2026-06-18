@@ -133,7 +133,9 @@ pub use decorrelate::{
     reconstruct_pair_arith_shift,
 };
 pub use error::{Error, Result};
-pub use filter_config::{cascade_for_level, FilterStage, FILTER_STAGES};
+pub use filter_config::{
+    cascade_for_level, FilterCascade, FilterStage, FILTER_STAGES, MAX_CASCADE_DEPTH,
+};
 pub use freq_model::{
     counts_for_version, freqs_for_version, symbol_for_cum_freq, symbol_interval, symbol_width,
     COUNTS_GE3990, COUNTS_LE3980, FREQS_GE3990, FREQS_LE3980, FREQ_MODEL_VERSION_SPLIT,
