@@ -1,5 +1,7 @@
 # oxideav-ape
 
+[![CI](https://github.com/OxideAV/oxideav-ape/actions/workflows/ci.yml/badge.svg)](https://github.com/OxideAV/oxideav-ape/actions/workflows/ci.yml) [![crates.io](https://img.shields.io/crates/v/oxideav-ape.svg)](https://crates.io/crates/oxideav-ape) [![docs.rs](https://docs.rs/oxideav-ape/badge.svg)](https://docs.rs/oxideav-ape) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Pure-Rust, clean-room scaffold for **Monkey's Audio** (`.ape`), the
 lossless audio codec by Matthew T. Ashland distributed as the
 reference binary at <http://www.monkeysaudio.com/>. Monkey's Audio
