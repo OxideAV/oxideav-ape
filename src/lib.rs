@@ -135,6 +135,7 @@
 #![warn(missing_docs)]
 
 pub mod cascade;
+pub mod config;
 pub mod decorrelate;
 pub mod error;
 pub mod filter_config;
@@ -147,6 +148,7 @@ pub mod scalars;
 pub use cascade::{
     cascade_decode, cascade_encode, filter_stage_decode, filter_stage_encode, StageState,
 };
+pub use config::StreamConfig;
 pub use decorrelate::{
     decorrelate_pair, decorrelate_pair_arith_shift, reconstruct_block,
     reconstruct_block_arith_shift, reconstruct_pair, reconstruct_pair_arith_shift,

@@ -9,6 +9,19 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`StreamConfig` version/level dispatch** (new [`config`] module) —
+  performs the two dispatches the staged material pins, once, from one
+  parsed `HeaderPrefix`: the frequency-model version split
+  (`counts`/`freqs` pair, `< 3990` vs `>= 3990`) and the per-level
+  filter cascade. `from_header` / `from_bytes` constructors,
+  `counts()` / `freqs()` / `cascade()` / `uses_ge3990_model()`
+  accessors. No new constants and no new control flow beyond composing
+  the two existing pinned selectors. 5 unit tests (worked-example
+  selection, exact 3990 boundary, all-level cascades, error
+  passthrough, counts/freqs pairing invariant; lib suite 130 → 135).
+
 ### Changed
 
 - Documentation refresh: README gains a status overview plus sections
