@@ -26,7 +26,16 @@
 //!
 //! * the order-`N` prediction dot product `t`,
 //! * the sign-of-`in` adaptation of the parameter vector `par[]`, and
-//! * the output `out = in + t`.
+//! * the output `out = in + t`,
+//!
+//! plus the **encoder-direction algebraic inverse** of that same step
+//! ([`residual_step`] / [`residual_step_self_ref`]): `in = out - t`
+//! with the identical sign-of-`in` adaptation. The inverse introduces
+//! no new bitstream semantics — it is the pinned recurrence solved for
+//! the other variable — and gives the pair an exact round-trip
+//! (samples *and* `par[]` trajectory) under any caller-supplied history
+//! policy, which is the self-consistency lever available while the
+//! per-version `delta[]` maintenance stays unpinned.
 //!
 //! The trailing "correct delta[] array - different for many versions"
 //! line is the **one** part of the recurrence the staged docs
@@ -193,6 +202,67 @@ pub fn predict_step_self_ref(input: i32, history: &[i32], par: &mut [i32]) -> Re
     Ok((i64::from(input) + t) as i32)
 }
 
+/// The **encoder-direction algebraic inverse** of [`predict_step`]:
+/// recover `in` (the residual) from `out` (the filtered value) against
+/// the *same* history / adaptation-reference / coefficient state.
+///
+/// [`predict_step`] transcribes the wiki's decode-direction recurrence
+/// `out = in + t` with `t` read from the pre-adaptation `par[]`. Because
+/// `t` depends only on `history` and the pre-adaptation `par[]` — never
+/// on `in` itself — the map `in -> out` is a bijection for fixed state,
+/// and its inverse is pure algebra: `in = out - t`, followed by the
+/// **identical** sign-of-`in` adaptation of `par[]` (the sign is taken
+/// of the recovered residual, exactly the quantity the decode direction
+/// branches on). No new bitstream semantics are introduced: this is the
+/// same pinned recurrence, solved for the other variable.
+///
+/// Running `residual_step` then [`predict_step`] (or vice versa) over
+/// the same evolving state is therefore an exact round-trip — including
+/// the `par[]` trajectory — for **any** caller-supplied history policy,
+/// which is what makes the pair self-validating while the per-version
+/// `delta[]` maintenance remains unpinned.
+///
+/// The subtraction happens in `i64` and narrows with the same wrapping
+/// semantics as the forward step, so the round-trip is exact even when
+/// the forward `out = in + t` wrapped.
+pub fn residual_step(
+    output: i32,
+    history: &[i32],
+    adapt_ref: &[i32],
+    par: &mut [i32],
+) -> Result<i32> {
+    if history.len() != par.len() || adapt_ref.len() != par.len() {
+        return Err(Error::PredictorOrderMismatch {
+            history: history.len(),
+            par: par.len(),
+        });
+    }
+    // Same pre-adaptation prediction the forward step reads.
+    let t = predict_dot(history, par)?;
+    // in = out - t, with the same wrapping narrow as the forward
+    // (in + t) so the two are exact inverses even across wraps.
+    let input = (i64::from(output).wrapping_sub(t)) as i32;
+    let sign = adapt_sign(i64::from(input));
+    if sign > 0 {
+        for i in 0..par.len() {
+            par[i] = par[i].wrapping_add(adapt_ref[i]);
+        }
+    } else if sign < 0 {
+        for i in 0..par.len() {
+            par[i] = par[i].wrapping_sub(adapt_ref[i]);
+        }
+    }
+    Ok(input)
+}
+
+/// [`residual_step`] with the adaptation reference window aliased to the
+/// prediction `history` window — the inverse of
+/// [`predict_step_self_ref`], mirroring the same snapshot-reading pair
+/// the forward direction offers.
+pub fn residual_step_self_ref(output: i32, history: &[i32], par: &mut [i32]) -> Result<i32> {
+    residual_step(output, history, history, par)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +395,146 @@ mod tests {
         let mut par3 = [10i32, 20, 30];
         let err = predict_step(7, &history, &adapt_short, &mut par3).unwrap_err();
         assert_eq!(err, Error::PredictorOrderMismatch { history: 3, par: 3 });
+    }
+
+    /// Tiny xorshift PRNG so property tests need no external dep.
+    fn xorshift(state: &mut u64) -> u64 {
+        let mut x = *state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *state = x;
+        x
+    }
+
+    #[test]
+    fn residual_step_inverts_the_worked_example() {
+        // Forward: in = 7, t = 140 -> out = 147, par += adapt_ref.
+        let history = [1i32, 2, 3];
+        let adapt_ref = [4i32, 5, 6];
+        let mut par_fwd = [10i32, 20, 30];
+        let out = predict_step(7, &history, &adapt_ref, &mut par_fwd).unwrap();
+        assert_eq!(out, 147);
+
+        // Inverse from the same PRE-step state: recovers in = 7 and the
+        // identical par[] trajectory.
+        let mut par_inv = [10i32, 20, 30];
+        let input = residual_step(out, &history, &adapt_ref, &mut par_inv).unwrap();
+        assert_eq!(input, 7);
+        assert_eq!(par_inv, par_fwd);
+    }
+
+    #[test]
+    fn residual_step_adapts_by_the_recovered_residual_sign() {
+        // out = 133 recovers in = -7 (t = 140); the adaptation must
+        // follow sign(in) = -1, matching the forward step's branch.
+        let history = [1i32, 2, 3];
+        let adapt_ref = [4i32, 5, 6];
+        let mut par = [10i32, 20, 30];
+        let input = residual_step(133, &history, &adapt_ref, &mut par).unwrap();
+        assert_eq!(input, -7);
+        assert_eq!(par, [6, 15, 24]);
+
+        // out = t exactly recovers in = 0: neither branch fires.
+        let mut par0 = [10i32, 20, 30];
+        let input = residual_step(140, &history, &adapt_ref, &mut par0).unwrap();
+        assert_eq!(input, 0);
+        assert_eq!(par0, [10, 20, 30]);
+    }
+
+    #[test]
+    fn residual_step_rejects_order_mismatch() {
+        let history = [1i32, 2, 3];
+        let adapt_ref = [4i32, 5, 6];
+        let mut par = [10i32, 20];
+        let err = residual_step(7, &history, &adapt_ref, &mut par).unwrap_err();
+        assert_eq!(err, Error::PredictorOrderMismatch { history: 3, par: 2 });
+    }
+
+    #[test]
+    fn self_ref_inverse_matches_explicit_aliasing() {
+        let history = [1i32, 2, 3];
+        let mut par_a = [10i32, 20, 30];
+        let mut par_b = [10i32, 20, 30];
+        let a = residual_step(147, &history, &history, &mut par_a).unwrap();
+        let b = residual_step_self_ref(147, &history, &mut par_b).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(par_a, par_b);
+    }
+
+    #[test]
+    fn round_trip_holds_over_prng_state_evolution() {
+        // Encode-then-decode over an evolving sliding window must be an
+        // exact identity — samples AND par[] trajectory — for any
+        // caller-supplied history policy. Use a PRNG-driven policy so the
+        // property is exercised well away from the anchors.
+        for order in [1usize, 2, 4, 16] {
+            let mut rng = 0x243F_6A88_85A3_08D3u64 ^ (order as u64);
+            let mut history = vec![0i32; order];
+            let mut adapt_ref = vec![0i32; order];
+            for v in history.iter_mut().chain(adapt_ref.iter_mut()) {
+                *v = (xorshift(&mut rng) as i32) % 1024;
+            }
+            let mut par_enc = vec![0i32; order];
+            let mut par_dec = vec![0i32; order];
+            for v in par_enc.iter_mut() {
+                *v = (xorshift(&mut rng) as i32) % 64;
+            }
+            par_dec.copy_from_slice(&par_enc);
+
+            let mut hist_enc = history.clone();
+            let mut hist_dec = history;
+            for step in 0..256 {
+                let sample = xorshift(&mut rng) as i32;
+                // Encoder direction: sample -> residual.
+                let residual = residual_step(sample, &hist_enc, &adapt_ref, &mut par_enc).unwrap();
+                // Decoder direction: residual -> sample.
+                let decoded = predict_step(residual, &hist_dec, &adapt_ref, &mut par_dec).unwrap();
+                assert_eq!(decoded, sample, "order {order}, step {step}");
+                assert_eq!(par_enc, par_dec, "order {order}, step {step}");
+                // Shared (arbitrary) history policy: push the decoded
+                // sample, mixed with the PRNG, into the window. Both
+                // sides advance identically — the policy itself is the
+                // unpinned per-version part.
+                let novel = sample.wrapping_add((xorshift(&mut rng) as i32) % 8);
+                hist_enc.rotate_left(1);
+                *hist_enc.last_mut().unwrap() = novel;
+                hist_dec.rotate_left(1);
+                *hist_dec.last_mut().unwrap() = novel;
+            }
+        }
+    }
+
+    #[test]
+    fn round_trip_is_exact_across_wrapping_narrows() {
+        // Force out = in + t to wrap the i32 narrow; the inverse must
+        // still recover the exact residual and par[] state.
+        let history = [i32::MAX, i32::MAX];
+        let adapt_ref = [3i32, 5];
+        let mut par_fwd = [i32::MAX, 7];
+        let mut par_inv = [i32::MAX, 7];
+        let input = i32::MAX;
+        let out = predict_step(input, &history, &adapt_ref, &mut par_fwd).unwrap();
+        let back = residual_step(out, &history, &adapt_ref, &mut par_inv).unwrap();
+        assert_eq!(back, input);
+        assert_eq!(par_inv, par_fwd);
+    }
+
+    #[test]
+    fn residual_step_order_zero_is_identity() {
+        // Order-0: t == 0, so the residual IS the sample and par[] is
+        // untouched (there is nothing to adapt).
+        let history: [i32; 0] = [];
+        let adapt_ref: [i32; 0] = [];
+        let mut par: [i32; 0] = [];
+        assert_eq!(
+            residual_step(42, &history, &adapt_ref, &mut par).unwrap(),
+            42
+        );
+        assert_eq!(
+            residual_step(-42, &history, &adapt_ref, &mut par).unwrap(),
+            -42
+        );
     }
 
     #[test]

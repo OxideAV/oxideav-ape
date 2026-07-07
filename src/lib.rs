@@ -142,7 +142,10 @@ pub use freq_model::{
     MODEL_ELEMENTS, POWERS_OF_TWO_MINUS_ONE, RANGE_OVERFLOW_SHIFT, RANGE_TOTAL_WIDTH,
 };
 pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
-pub use predictor::{adapt_sign, predict_dot, predict_step, predict_step_self_ref};
+pub use predictor::{
+    adapt_sign, predict_dot, predict_step, predict_step_self_ref, residual_step,
+    residual_step_self_ref,
+};
 pub use scalars::{
     ksum_pivot, stage1_predict, KSUM_PIVOT_DIVISOR, PREDICTOR_HISTORY_SEED, STAGE1_FILTER_SHIFT,
     STAGE1_FILTER_WEIGHT,

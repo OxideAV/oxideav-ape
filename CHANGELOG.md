@@ -11,6 +11,19 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Encoder-direction predictor-step inverse** ([`predictor`] module) —
+  `residual_step` / `residual_step_self_ref`, the algebraic inverse of
+  the pinned wiki §"IIR Filtering" per-value recurrence: `in = out - t`
+  read against the same pre-adaptation `par[]`, followed by the
+  identical sign-of-`in` adaptation. Introduces no new bitstream
+  semantics (the pinned recurrence solved for the other variable) and
+  gives the step pair an exact round-trip — samples *and* `par[]`
+  trajectory — under **any** caller-supplied history policy, including
+  across wrapping `i32` narrows. Adds 7 `predictor` unit tests (worked
+  example inverse, recovered-sign adaptation, PRNG round-trip over
+  orders 1/2/4/16 × 256 steps, wrap-exactness, order-0 identity,
+  mismatch, self-ref aliasing; lib suite 102 → 109).
+
 - **`ksum_pivot` closed form** ([`scalars`] module) — wires the second
   (and last) closed form the extractor's `scalars.csv` `role` text
   spells out verbatim: the `>= 3990` value-decode `KSum` pivot
