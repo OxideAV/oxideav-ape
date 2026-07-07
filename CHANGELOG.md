@@ -11,6 +11,35 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Buffer-at-a-time stage runner + cascade walk** (new [`cascade`]
+  module) — `filter_stage_decode` / `filter_stage_encode` apply the
+  pinned per-value recurrence (aliased-window reading) over a whole
+  residual buffer, and `cascade_decode` / `cascade_encode` chain the
+  1-3 pinned per-level stages ("apply all IIR filters onto values"),
+  defined as mutual inverses (encode walks `filter_index` ascending,
+  decode descending) because the absolute orientation is unpinned.
+  `StageState` owns the sliding window + `par[]` per stage (`zeroed`,
+  `for_stage`, `for_cascade`, `with_initial`). The two unpinned parts
+  are **injected, not guessed**: the per-version `delta[]` maintenance
+  is a `policy(residual, filtered)` closure whose return advances the
+  window — both directions hand the policy the identical pair, so
+  encode/decode round-trips exactly for any policy — and the staged
+  per-stage `shift`'s position in the recurrence is not consumed (the
+  wiki recurrence carries no shift). 9 unit tests: order-0 identity,
+  manual-loop anchor, PRNG-policy round-trips (orders 1/2/16/32),
+  identical policy pairs both directions, full five-level cascade
+  round-trip, stage-index dispatch order, fast-level no-op, mismatch,
+  geometry (lib suite 109 → 118).
+
+### Changed
+
+- `predict_dot` accumulates with **wrapping** `i64` addition and the
+  step's `out = in + t` narrows via `wrapping_add` — a single product
+  is `<= 2^62` so realistic magnitudes never wrap, but an adversarial
+  full-range buffer at the pinned order-1280 stage could previously
+  panic a debug build. Wrapping keeps the forward/inverse steps exact
+  mutual inverses across a wrapped accumulator.
+
 - **Encoder-direction predictor-step inverse** ([`predictor`] module) —
   `residual_step` / `residual_step_self_ref`, the algebraic inverse of
   the pinned wiki §"IIR Filtering" per-value recurrence: `in = out - t`

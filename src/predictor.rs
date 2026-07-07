@@ -100,9 +100,13 @@ pub const fn adapt_sign(value: i64) -> i64 {
 /// share the predictor order; a length disagreement surfaces
 /// [`Error::PredictorOrderMismatch`].
 ///
-/// Accumulates in `i64` so an order-`N` sum of `i32`-range products
-/// cannot overflow the accumulator for any order the documented
-/// compression profiles reach.
+/// Accumulates in `i64`, with **wrapping** addition: a single
+/// `i32 * i32` product cannot exceed `2^62`, so for every realistic
+/// filter magnitude the accumulator never wraps, but an adversarial
+/// full-range buffer at the pinned order-1280 stage could — and a
+/// hostile stream must not be able to panic a debug build. The wrapping
+/// semantics are what keep [`predict_step`] / [`residual_step`] exact
+/// mutual inverses even across a wrapped accumulator.
 pub fn predict_dot(history: &[i32], par: &[i32]) -> Result<i64> {
     if history.len() != par.len() {
         return Err(Error::PredictorOrderMismatch {
@@ -112,7 +116,7 @@ pub fn predict_dot(history: &[i32], par: &[i32]) -> Result<i64> {
     }
     let mut t: i64 = 0;
     for i in 0..history.len() {
-        t += i64::from(history[i]) * i64::from(par[i]);
+        t = t.wrapping_add(i64::from(history[i]) * i64::from(par[i]));
     }
     Ok(t)
 }
@@ -170,7 +174,7 @@ pub fn predict_step(
     // `out = in + t`; the accumulator is `i64`, the output is the
     // pipeline's `i32` sample, formed by a wrapping narrow so an
     // out-of-range intermediate does not panic in release builds.
-    Ok((i64::from(input) + t) as i32)
+    Ok(i64::from(input).wrapping_add(t) as i32)
 }
 
 /// [`predict_step`] with the adaptation reference window aliased to the
@@ -199,7 +203,7 @@ pub fn predict_step_self_ref(input: i32, history: &[i32], par: &mut [i32]) -> Re
             par[i] = par[i].wrapping_sub(history[i]);
         }
     }
-    Ok((i64::from(input) + t) as i32)
+    Ok(i64::from(input).wrapping_add(t) as i32)
 }
 
 /// The **encoder-direction algebraic inverse** of [`predict_step`]:
