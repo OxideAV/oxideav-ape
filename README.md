@@ -314,6 +314,22 @@ spec. End-to-end PCM round-trips are tested across all five pinned
 level cascades × both roundings, including cross-frame filter-state
 carry.
 
+## Stream configuration (version/level dispatch)
+
+`StreamConfig` performs the two dispatches the staged material pins,
+once, from one parsed header prefix: the frequency-model version split
+(`< 3990` vs `>= 3990`) and the per-level filter cascade.
+
+```rust
+use oxideav_ape::StreamConfig;
+
+// 'MAC ' + 3920 (v3.92) + 2000 (normal).
+let cfg = StreamConfig::from_bytes(b"MAC \x50\x0F\xD0\x07").unwrap();
+assert!(!cfg.uses_ge3990_model()); // 3920 < 3990 -> older model
+assert_eq!(cfg.cascade().len(), 1); // normal: one order-16 stage
+assert_eq!(cfg.counts()[64], 65536); // version-selected counts table
+```
+
 ## Scalar constants + pinned closed forms
 
 The clean-room extractor staged a `scalars.csv` table of scalar
