@@ -11,6 +11,19 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **`ksum_pivot` closed form** ([`scalars`] module) — wires the second
+  (and last) closed form the extractor's `scalars.csv` `role` text
+  spells out verbatim: the `>= 3990` value-decode `KSum` pivot
+  `max(KSum / KSUM_PIVOT_DIVISOR, 1)` (`max(ksum / 32, 1)`), as a
+  `const fn` over a `u64` accumulator. The floor at `1` makes the pivot
+  safe to divide by unconditionally. The surrounding recurrence — how
+  `KSum` accumulates across decoded values and how the pivot splits a
+  value into range-coded parts — remains unpinned narrative awaiting the
+  cleanroom `spec/`, so only the pivot map itself is wired. Adds 5
+  `scalars` unit tests (closed-form sweep incl. `u64::MAX`, floor
+  region, never-zero, monotonicity, const-evaluability; lib suite
+  97 → 102).
+
 - **`FilterCascade` aggregate view** ([`filter_config`] module) — a
   fixed-capacity, no-alloc view over the same pinned `(order, shift)`
   cascade data `cascade_for_level` returns as a `Vec`. `for_level`

@@ -248,25 +248,29 @@ assert!(FilterCascade::for_level(CompressionLevel::Fast).is_empty());
 assert_eq!(MAX_CASCADE_DEPTH, 3);
 ```
 
-## Scalar constants + stage-1 order-1 prediction
+## Scalar constants + pinned closed forms
 
 The clean-room extractor staged a `scalars.csv` table of scalar
 functional constants alongside the frequency model
 (`docs/audio/ape-cleanroom/tables/scalars.csv`). The crate loads it
 byte-for-byte via `include_str!` + a `const` name-keyed reader (no
 numeric literal retyped) and exposes all seven pinned scalars as named
-constants, plus the one closed form the scalar `role` text spells out
+constants, plus the two closed forms the scalar `role` text spells out
 verbatim — the **stage-1 order-1 integer prediction**
-`x * stage1_filter_weight >> stage1_filter_shift` (`x * 31 >> 5`):
+`x * stage1_filter_weight >> stage1_filter_shift` (`x * 31 >> 5`) and
+the `>= 3990` value-decode **`KSum` pivot** `max(ksum / 32, 1)`:
 
 ```rust
-use oxideav_ape::{stage1_predict, STAGE1_FILTER_WEIGHT, STAGE1_FILTER_SHIFT};
+use oxideav_ape::{ksum_pivot, stage1_predict, STAGE1_FILTER_WEIGHT, STAGE1_FILTER_SHIFT};
 
 // 64 * 31 = 1984; 1984 >> 5 = 62.
 assert_eq!(stage1_predict(64), 62);
 assert_eq!(stage1_predict(64), (64 * STAGE1_FILTER_WEIGHT) >> STAGE1_FILTER_SHIFT);
 // Arithmetic (floor) shift: -31 >> 5 = -1, not 0.
 assert_eq!(stage1_predict(-1), -1);
+// KSum pivot: max(ksum / 32, 1) — floored at 1, so always divisible-by.
+assert_eq!(ksum_pivot(0), 1);
+assert_eq!(ksum_pivot(96), 3);
 ```
 
 The cleanroom workspace lists the stage-1 order-1 predictor as
@@ -281,11 +285,12 @@ The full scalar set is `MODEL_ELEMENTS = 64`,
 `KSUM_PIVOT_DIVISOR = 32`, `STAGE1_FILTER_WEIGHT = 31`,
 `STAGE1_FILTER_SHIFT = 5`, `PREDICTOR_HISTORY_SEED = 317`. The first
 three cross-check (via a unit test) against the `freq_model` module's
-independently-sourced copies. `KSUM_PIVOT_DIVISOR` and
-`PREDICTOR_HISTORY_SEED` are surfaced as data only — the recurrences
-they feed (the `>= 3990` `k`-parameter value decode and the per-version
-adaptation-window seeding) are narrative the staged tables do not pin,
-so no logic is wired around them.
+independently-sourced copies. `PREDICTOR_HISTORY_SEED` is surfaced as
+data only — the per-version adaptation-window seeding it feeds is
+narrative the staged tables do not pin. The `KSum` recurrence *around*
+`ksum_pivot` (accumulation across decoded values; the pivot-driven
+split into range-coded parts) is likewise unpinned, so only the pivot's
+own closed form is wired.
 
 ## Crate features
 

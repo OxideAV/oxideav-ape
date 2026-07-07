@@ -17,24 +17,27 @@
 //! | `stage1_filter_shift`        | `5`     | right shift pairing `stage1_filter_weight` |
 //! | `predictor_history_seed`     | `317`   | initial adaptation coefficient seeded into the order-1 history slot |
 //!
-//! This module ships the **data + the one closed form the scalar `role`
+//! This module ships the **data + the two closed forms the scalar `role`
 //! text fully spells out** — the stage-1 order-1 integer prediction
-//! `x * stage1_filter_weight >> stage1_filter_shift` — and nothing more.
+//! `x * stage1_filter_weight >> stage1_filter_shift`, and the `>= 3990`
+//! `KSum` pivot `max(KSum / ksum_pivot_divisor, 1)` — and nothing more.
 //! The cleanroom README lists *"stage-1 integer order-1 predictor +
 //! channel decorrelation"* as in-scope-from-the-wiki, and the `role`
-//! column states the operation verbatim as `x*weight>>shift`. That makes
-//! the stage a pinned, stateless closed form, distinct from the adaptive
-//! predictor cascade recurrence (whose `delta[]` history maintenance the
-//! wiki declines to pin — see [`crate::predictor`]).
+//! column states the stage-1 operation verbatim as `x*weight>>shift` and
+//! the pivot as `pivot value = max(KSum / this, 1)`. That makes both
+//! pinned, stateless closed forms, distinct from the adaptive predictor
+//! cascade recurrence (whose `delta[]` history maintenance the wiki
+//! declines to pin — see [`crate::predictor`]).
 //!
-//! [`KSUM_PIVOT_DIVISOR`] and [`PREDICTOR_HISTORY_SEED`] are exposed as
-//! named constants because the extractor pinned them as functional data,
-//! but the recurrences they feed (the `>= 3990` `k`-parameter value
-//! decode and the per-version adaptation-window seeding) are **narrative
-//! the staged `tables/` do not commit to** and the cleanroom `spec/`
-//! directory has not been authored. This module therefore wires **no
-//! logic** around those two — it surfaces the constants for a later phase
-//! and refuses to guess the control flow.
+//! [`PREDICTOR_HISTORY_SEED`] is exposed as a named constant because the
+//! extractor pinned it as functional data, but the recurrence it feeds
+//! (the per-version adaptation-window seeding) is **narrative the staged
+//! `tables/` do not commit to** and the cleanroom `spec/` directory has
+//! not been authored. Likewise, the surrounding `k`-parameter recurrence
+//! — how `KSum` itself accumulates across decoded values, and how the
+//! pivot splits a value into range-coded parts — is unpinned: only the
+//! pivot's own closed form ([`ksum_pivot`]) is committed to by the
+//! `role` text, so only that map is wired here.
 //!
 //! ## Data provenance (clean-room)
 //!
@@ -119,10 +122,12 @@ pub const RANGE_OVERFLOW_TOTAL_WIDTH: u32 =
 pub const RANGE_OVERFLOW_SHIFT: u32 = parse_named_value(SCALARS_CSV, "range_overflow_shift");
 
 /// `KSum` pivot divisor for the `>= 3990` value decode (`scalars.csv`
-/// `ksum_pivot_divisor`). The recurrence this divisor feeds — the
-/// per-value `k`-parameter computation — is **not** pinned by the staged
-/// tables, so the constant is exposed for a later phase but no logic is
-/// wired around it here.
+/// `ksum_pivot_divisor`). The `role` text pins the pivot's closed form —
+/// `pivot value = max(KSum / this, 1)` — which is wired as
+/// [`ksum_pivot`]. The surrounding recurrence (how `KSum` accumulates
+/// across decoded values, and how the pivot splits a value into
+/// range-coded parts) is **not** pinned by the staged tables and remains
+/// a later-phase input.
 pub const KSUM_PIVOT_DIVISOR: u32 = parse_named_value(SCALARS_CSV, "ksum_pivot_divisor");
 
 /// Fixed weight of the order-1 integer prediction stage
@@ -169,6 +174,43 @@ pub const fn stage1_predict(x: i32) -> i32 {
     // the multiply; the arithmetic right shift then narrows back into the
     // i32 sample range the stage feeds.
     ((x as i64 * STAGE1_FILTER_WEIGHT as i64) >> STAGE1_FILTER_SHIFT) as i32
+}
+
+/// The `>= 3990` value-decode `KSum` pivot the scalar `role` text spells
+/// out verbatim: `pivot value = max(KSum / KSUM_PIVOT_DIVISOR, 1)`
+/// (`max(ksum / 32, 1)`).
+///
+/// This is the second (and last) closed form the `scalars.csv` `role`
+/// column commits to. It is a stateless map from the running `KSum`
+/// accumulator to the pivot the `>= 3990` decode splits values against;
+/// the *recurrence* that maintains `KSum` across decoded values — and
+/// the split/reassembly the pivot drives — are narrative the staged
+/// tables do not pin, so those stay out of scope until the cleanroom
+/// `spec/` is authored. The floor at `1` means the pivot can never be
+/// zero, so a later phase may divide by it unconditionally.
+///
+/// `KSum` is carried as `u64` so a caller-side accumulator over long
+/// residual runs cannot saturate the argument type; the divisor is the
+/// pinned [`KSUM_PIVOT_DIVISOR`] constant loaded from the table.
+///
+/// ```
+/// use oxideav_ape::scalars::{ksum_pivot, KSUM_PIVOT_DIVISOR};
+///
+/// // max(ksum / 32, 1).
+/// assert_eq!(ksum_pivot(0), 1); // floored at 1
+/// assert_eq!(ksum_pivot(31), 1); // 31/32 == 0 -> floored at 1
+/// assert_eq!(ksum_pivot(32), 1); // 32/32 == 1
+/// assert_eq!(ksum_pivot(96), 3);
+/// assert_eq!(ksum_pivot(u64::from(KSUM_PIVOT_DIVISOR) * 10), 10);
+/// ```
+#[inline]
+pub const fn ksum_pivot(ksum: u64) -> u64 {
+    let quotient = ksum / KSUM_PIVOT_DIVISOR as u64;
+    if quotient == 0 {
+        1
+    } else {
+        quotient
+    }
 }
 
 #[cfg(test)]
@@ -280,5 +322,64 @@ mod tests {
     fn stage1_predict_is_const_evaluable() {
         const P: i32 = stage1_predict(64);
         assert_eq!(P, 62);
+    }
+
+    #[test]
+    fn ksum_pivot_matches_the_spelled_out_closed_form() {
+        // max(ksum / 32, 1) — exact agreement with the role text's map
+        // over a boundary-heavy sweep.
+        for ksum in [
+            0u64,
+            1,
+            31,
+            32,
+            33,
+            63,
+            64,
+            65,
+            96,
+            1 << 16,
+            u64::from(u32::MAX),
+            u64::MAX,
+        ] {
+            let expected = core::cmp::max(ksum / u64::from(KSUM_PIVOT_DIVISOR), 1);
+            assert_eq!(ksum_pivot(ksum), expected, "ksum = {ksum}");
+        }
+    }
+
+    #[test]
+    fn ksum_pivot_floors_at_one_below_the_divisor() {
+        // Every KSum below the divisor floors at 1 — the property that
+        // lets a later phase divide by the pivot unconditionally.
+        for ksum in 0..u64::from(KSUM_PIVOT_DIVISOR) {
+            assert_eq!(ksum_pivot(ksum), 1);
+        }
+        // The first non-floored value is exactly the divisor itself.
+        assert_eq!(ksum_pivot(u64::from(KSUM_PIVOT_DIVISOR)), 1);
+        assert_eq!(ksum_pivot(u64::from(KSUM_PIVOT_DIVISOR) * 2), 2);
+    }
+
+    #[test]
+    fn ksum_pivot_is_never_zero() {
+        for ksum in [0u64, 1, 31, 32, 1000, u64::MAX] {
+            assert!(ksum_pivot(ksum) >= 1);
+        }
+    }
+
+    #[test]
+    fn ksum_pivot_is_monotonic_nondecreasing() {
+        // A larger accumulated KSum can never yield a smaller pivot.
+        let mut prev = ksum_pivot(0);
+        for ksum in 1..4096u64 {
+            let cur = ksum_pivot(ksum);
+            assert!(cur >= prev, "pivot regressed at ksum = {ksum}");
+            prev = cur;
+        }
+    }
+
+    #[test]
+    fn ksum_pivot_is_const_evaluable() {
+        const P: u64 = ksum_pivot(96);
+        assert_eq!(P, 3);
     }
 }
