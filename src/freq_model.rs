@@ -396,6 +396,28 @@ mod tests {
     }
 
     #[test]
+    fn exhaustive_cum_freq_inverse_over_the_full_range() {
+        // Every cumulative-frequency value in [0, 65536) must decode —
+        // via the binary search — to the unique symbol whose half-open
+        // interval contains it. Walk the table linearly alongside so
+        // the check is independent of the search implementation.
+        for counts in [&COUNTS_LE3980, &COUNTS_GE3990] {
+            let mut symbol = 0usize;
+            for cf in 0..RANGE_TOTAL_WIDTH {
+                while counts[symbol + 1] <= cf {
+                    symbol += 1;
+                }
+                assert_eq!(
+                    symbol_for_cum_freq(counts, cf),
+                    symbol,
+                    "cum_freq {cf} must decode to symbol {symbol}"
+                );
+            }
+            assert_eq!(symbol, MODEL_ELEMENTS - 1);
+        }
+    }
+
+    #[test]
     fn powers_of_two_minus_one_is_mask_table() {
         for (n, &v) in POWERS_OF_TWO_MINUS_ONE.iter().enumerate() {
             if n < 32 {

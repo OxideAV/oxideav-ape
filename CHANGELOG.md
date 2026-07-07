@@ -11,6 +11,26 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Hostile-input hardening + exhaustive sweeps** — the four
+  channel-correlation closed forms now use wrapping (mod 2^32)
+  arithmetic, so `i32`-extreme decorrelated pairs cannot panic a debug
+  build; the wrapping algebra adds and subtracts the identical `Y/2`
+  term, making each spelling's decorrelate/reconstruct pair the exact
+  identity for **every** input (no parity condition — the
+  `decorrelate_pair` doc previously understated this). New tests: full
+  `i32`-extreme round-trips both spellings, shift-spelling identity on
+  odd negative `Y`, cross-spelling divergence characterisation
+  (off-by-one exactly on odd negative `Y`), an exhaustive
+  `symbol_for_cum_freq` inverse over all 65536 cumulative-frequency
+  values × both tables (validated against an independent linear walk),
+  and a `tests/frame_pipeline.rs` integration suite through the public
+  re-export surface only: five-level stereo round-trip under a policy
+  composed from the crate's own pinned closed forms
+  (`stage1_predict` + `ksum_pivot`), cross-frame filter-state carry
+  (with a fresh-state divergence counter-check), source-error
+  propagation, and an exhaustive all-`u16` compression-level header
+  sweep (exactly 5 accepted). Lib suite 126 → 130, +4 integration.
+
 - **Frame-decode orchestrator** (new [`pipeline`] module) — wires the
   wiki §"General Decoding Process" stage ordering verbatim:
   `decode_frame` unpacks every channel's delta array (channel 0, then

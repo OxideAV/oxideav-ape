@@ -58,10 +58,16 @@ use crate::error::{Error, Result};
 ///
 /// `const fn` so the reconstructor is usable in `const` contexts (e.g.
 /// building a static reference vector for a future black-box check).
+///
+/// All arithmetic is **wrapping**: for every PCM-range input the sums
+/// never wrap, but a hostile decorrelated pair near the `i32` extremes
+/// must not be able to panic a debug build, and the wrapping (mod
+/// 2^32) algebra is exactly what keeps each spelling a lossless
+/// inverse of its decorrelation twin even across a wrap.
 #[inline]
 pub const fn reconstruct_pair(x: i32, y: i32) -> (i32, i32) {
-    let r = x - y / 2;
-    let l = r + y;
+    let r = x.wrapping_sub(y / 2);
+    let l = r.wrapping_add(y);
     (l, r)
 }
 
@@ -89,8 +95,8 @@ pub const fn reconstruct_pair(x: i32, y: i32) -> (i32, i32) {
 /// `const fn` so the reconstructor is usable in `const` contexts.
 #[inline]
 pub const fn reconstruct_pair_arith_shift(x: i32, y: i32) -> (i32, i32) {
-    let r = x - (y >> 1);
-    let l = r + y;
+    let r = x.wrapping_sub(y >> 1);
+    let l = r.wrapping_add(y);
     (l, r)
 }
 
@@ -153,19 +159,18 @@ pub fn reconstruct_block_arith_shift(
 ///   X = R + Y / 2
 /// ```
 ///
-/// This is the inverse map of [`reconstruct_pair`] under Rust integer
-/// division semantics: `decorrelate_pair` composed with
-/// `reconstruct_pair` is the identity for any input where the
-/// arithmetic doesn't lose information through the floor on `Y / 2`
-/// — i.e. for `Y` even, the round-trip is identity for **every**
-/// `(L, R)`; for `Y` odd it is identity provided the encoder writes
-/// `Y` with the same rounding the decoder reads it with.
+/// This is the exact inverse map of [`reconstruct_pair`]: because the
+/// **same** `Y / 2` term is added here and subtracted there (and the
+/// arithmetic is wrapping, i.e. mod 2^32), both compositions are the
+/// identity for **every** input pair — no parity condition. Only
+/// cross-pairing the divide spelling with the arithmetic-shift
+/// spelling can disagree, and then exactly on odd negative `Y`.
 ///
 /// `const fn` so the inverse is usable in `const` contexts.
 #[inline]
 pub const fn decorrelate_pair(l: i32, r: i32) -> (i32, i32) {
-    let y = l - r;
-    let x = r + y / 2;
+    let y = l.wrapping_sub(r);
+    let x = r.wrapping_add(y / 2);
     (x, y)
 }
 
@@ -187,8 +192,8 @@ pub const fn decorrelate_pair(l: i32, r: i32) -> (i32, i32) {
 /// `const fn` so the inverse is usable in `const` contexts.
 #[inline]
 pub const fn decorrelate_pair_arith_shift(l: i32, r: i32) -> (i32, i32) {
-    let y = l - r;
-    let x = r + (y >> 1);
+    let y = l.wrapping_sub(r);
+    let x = r.wrapping_add(y >> 1);
     (x, y)
 }
 
@@ -351,6 +356,60 @@ mod tests {
                     (l, r),
                     "round-trip failed for (l, r) = ({l}, {r}) via (x, y) = ({x}, {y})"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn full_extreme_inputs_round_trip_without_panicking() {
+        // Hostile-input hardening: every (L, R) pair drawn from the
+        // i32 extremes must round-trip exactly through BOTH spelling
+        // pairs — the wrapping (mod 2^32) algebra adds and subtracts
+        // the identical Y/2 term, so no parity or range condition
+        // applies — and must never panic a debug build.
+        let extremes = [i32::MIN, i32::MIN + 1, -1, 0, 1, i32::MAX - 1, i32::MAX];
+        for &l in &extremes {
+            for &r in &extremes {
+                let (x, y) = decorrelate_pair(l, r);
+                assert_eq!(reconstruct_pair(x, y), (l, r), "div spelling ({l}, {r})");
+                let (xs, ys) = decorrelate_pair_arith_shift(l, r);
+                assert_eq!(
+                    reconstruct_pair_arith_shift(xs, ys),
+                    (l, r),
+                    "shift spelling ({l}, {r})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn arith_shift_spelling_pair_is_identity_on_odd_negative_y() {
+        // The shift spelling pairs losslessly with its own inverse on
+        // exactly the inputs where the two spellings diverge.
+        for (l, r) in [(0i32, 3i32), (-5, -2), (2, 5), (-1, 2)] {
+            let y = l.wrapping_sub(r);
+            assert!(y % 2 != 0);
+            let (x, y2) = decorrelate_pair_arith_shift(l, r);
+            assert_eq!(y2, y);
+            assert_eq!(reconstruct_pair_arith_shift(x, y2), (l, r));
+        }
+    }
+
+    #[test]
+    fn cross_pairing_the_spellings_diverges_only_on_odd_negative_y() {
+        // decorrelate with div, reconstruct with shift: identical
+        // whenever Y is even or non-negative, off by the rounding
+        // difference exactly when Y is odd and negative.
+        for l in -16i32..=16 {
+            for r in -16i32..=16 {
+                let (x, y) = decorrelate_pair(l, r);
+                let (l2, r2) = reconstruct_pair_arith_shift(x, y);
+                if y % 2 == 0 || y > 0 {
+                    assert_eq!((l2, r2), (l, r), "({l}, {r})");
+                } else {
+                    // Y odd negative: Y/2 and Y>>1 differ by exactly 1.
+                    assert_eq!((l2, r2), (l + 1, r + 1), "({l}, {r})");
+                }
             }
         }
     }
