@@ -9,6 +9,14 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation refresh: README gains a status overview plus sections
+  for the cascade runner and frame pipeline; the "Out of scope" list
+  is rewritten against the current surface (what is pinned vs. what
+  waits on the unauthored cleanroom `spec/`); crate `description` and
+  lib-level docs updated to match. No code changes.
+
 ### Added
 
 - **Hostile-input hardening + exhaustive sweeps** — the four

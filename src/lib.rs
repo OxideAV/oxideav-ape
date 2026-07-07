@@ -1,6 +1,9 @@
 //! # oxideav-ape
 //!
-//! **Status:** clean-room Phase 1 bootstrap.
+//! **Status:** clean-room build-out — every layer the staged docs pin
+//! is implemented; real-file decode waits on the unauthored cleanroom
+//! `spec/` (range-coder state machine, header tail, per-version
+//! `delta[]` rule).
 //!
 //! Pure-Rust scaffold for **Monkey's Audio** (`.ape`), the lossless
 //! audio codec authored by Matthew T. Ashland and distributed as the
@@ -74,10 +77,21 @@
 //! value into range-coded parts) are narrative the staged tables do not
 //! pin, so no logic is wired around those.
 //!
+//! Phase 3 assembles the pinned pieces into the decode pipeline shape:
+//! the [`cascade`] module walks the pinned per-value recurrence over
+//! whole buffers and chains the 1-3 pinned per-level stages (with the
+//! unpinned per-version `delta[]` maintenance **injected** as a
+//! `policy(residual, filtered)` closure, so encode/decode round-trips
+//! exactly for any policy), and the [`pipeline`] module wires the wiki
+//! §"General Decoding Process" stage ordering verbatim behind a
+//! [`pipeline::DeltaSource`] / [`pipeline::DeltaSink`] entropy
+//! boundary. The pipeline round-trips PCM end-to-end in
+//! self-consistency across all five pinned level cascades.
+//!
 //! Everything past offset 8 — version-specific sound-parameters,
 //! frame count, seek table, optional embedded WAV header — plus the
 //! range decoder's renormalisation / byte-input **state machine**, the
-//! per-version `delta[]` history maintenance, and the residual-coding
+//! per-version `delta[]` history maintenance rule, and the residual-coding
 //! `k`-parameter recurrence remain **out of scope**. The staged
 //! `tables/` pin the frequency model as data but the cleanroom `spec/`
 //! directory that would describe the coder's renormalisation narrative

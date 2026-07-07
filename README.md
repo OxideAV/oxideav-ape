@@ -8,6 +8,18 @@ reference binary at <http://www.monkeysaudio.com/>. Monkey's Audio
 pairs channel decorrelation, a cascade of IIR predictors, and a
 range-coded residual into a lossless integer-PCM round-trip.
 
+The crate currently ships every layer the staged clean-room docs pin:
+the 8-byte header prefix, the channel-correlation closed forms (both
+rounding spellings, both directions), the adaptive predictor step and
+its algebraic inverse, the buffer/cascade filter walk over the pinned
+per-level `(order, shift)` stages, the §"General Decoding Process"
+frame orchestration behind a `DeltaSource`/`DeltaSink` entropy
+boundary, the range-coder frequency model tables, and the two pinned
+scalar closed forms. The pipeline round-trips PCM end-to-end in
+self-consistency; **real-file decode** waits on the unauthored
+cleanroom `spec/` (range-coder state machine, header tail, per-version
+`delta[]` rule — see "Out of scope").
+
 **Phase 1** lands the 8-byte file-header prefix the staged docs at
 `docs/audio/ape/wiki/Monkeys_Audio.wiki` pin:
 
@@ -248,6 +260,60 @@ assert!(FilterCascade::for_level(CompressionLevel::Fast).is_empty());
 assert_eq!(MAX_CASCADE_DEPTH, 3);
 ```
 
+## Buffer stage runner + cascade walk (policy-injected)
+
+The wiki §"General Decoding Process" pins that the decoder must "apply
+all IIR filters onto values" per unpacked array. The `cascade` module
+walks the pinned per-value recurrence over a whole buffer
+(`filter_stage_decode` / `filter_stage_encode`) and chains the 1-3
+pinned per-level stages (`cascade_decode` / `cascade_encode`), with
+`StageState` owning each stage's sliding window + `par[]`. The two
+parts the staged docs decline to pin are **injected, not guessed**:
+
+- the per-version `delta[]` maintenance is a
+  `policy(residual, filtered)` closure whose return advances the
+  window — both directions hand the policy the identical pair, so
+  encode/decode round-trips exactly (buffer, window, and `par[]`
+  trajectory) for *any* policy;
+- the staged per-stage `shift`'s position in the recurrence is not
+  consumed (the wiki recurrence carries no shift), and the cascade's
+  absolute stage orientation is unpinned, so the two directions are
+  defined as mutual inverses (encode ascending `filter_index`, decode
+  descending).
+
+```rust
+use oxideav_ape::{cascade_decode, cascade_encode, CompressionLevel,
+                  FilterCascade, StageState};
+
+let cascade = FilterCascade::for_level(CompressionLevel::High);
+let mut enc = StageState::for_cascade(&cascade);
+let mut dec = StageState::for_cascade(&cascade);
+let mut buf = vec![100i32, -50, 25, 0, 7];
+let orig = buf.clone();
+// Any policy round-trips; the raw residual is the most literal reading.
+cascade_encode(&mut buf, &mut enc, |_stage, r, _f| r).unwrap();
+cascade_decode(&mut buf, &mut dec, |_stage, r, _f| r).unwrap();
+assert_eq!(buf, orig);
+```
+
+## Frame pipeline (§"General Decoding Process")
+
+`decode_frame` wires the pinned stage ordering verbatim — unpack every
+channel's delta array (channel 0, then 1), apply the caller's filter
+walk per array, then (stereo only) reconstruct `(L, R)` from the
+filtered `(X, Y)` pair. The unpinned entropy layer (range-decoder
+state machine + `k`-parameter recurrence) enters as the `DeltaSource`
+trait boundary, with `DeltaSink` + `encode_frame` as the encoder
+mirror, so the later phase that pins the coder plugs in without
+reshaping the frame walk. `FrameChannels` carries the wiki's
+mono/stereo distinction; `CorrelationRounding` carries the documented
+`Y/2`-vs-`Y>>1` ambiguity (each spelling pairs losslessly with its own
+inverse — `decorrelate_pair_arith_shift` completes the pair). The
+crate fixes **array 0 = X, array 1 = Y** as a local convention pending
+spec. End-to-end PCM round-trips are tested across all five pinned
+level cascades × both roundings, including cross-frame filter-state
+carry.
+
 ## Scalar constants + pinned closed forms
 
 The clean-room extractor staged a `scalars.csv` table of scalar
@@ -302,7 +368,7 @@ own closed form is wired.
 only the file-header parser API surface and the crate-local
 `Error` enum, with no framework dependency tree.
 
-## Out of scope (Phase 3+)
+## Out of scope (pending `spec/`)
 
 The staged clean-room `tables/` pin the frequency model and the
 filter cascade as functional data, but the narrative `spec/` directory
@@ -310,22 +376,27 @@ that would describe the coder's control flow has not yet been authored.
 These remain out of scope until it is:
 
 - Per-version header-tail layout (sound parameters, frame count,
-  seek table, optional embedded WAV header).
-- The per-compression-level **filter orders** are now pinned
-  (`cascade_for_level`), but the per-version `delta[]` history
-  maintenance ("correct delta[] array - different for many versions")
-  that advances the prediction window between steps is not.
+  seek table, optional embedded WAV header) — without it no real
+  `.ape` file can be walked past offset 8.
+- The per-version `delta[]` history maintenance ("correct delta[]
+  array - different for many versions"): the cascade runner injects it
+  as a policy closure, but the *actual* per-version rule is unpinned.
+- Where the pinned per-stage `shift` enters the recurrence (the wiki
+  recurrence carries no shift), and the cascade's absolute stage
+  orientation.
 - Residual-coding `k`-parameter recurrence and its per-version
-  initial-state details (the model the `k` low/high split feeds is
-  now pinned; the recurrence that computes `k` is not).
+  initial-state details (the model the `k` low/high split feeds and
+  the `KSum` pivot map are pinned; the recurrence that maintains
+  `KSum` / computes `k` is not).
 - Range-decoder **renormalisation / byte-input state machine** (the
-  frequency-table bounds are now pinned via `freq_model`; the coder's
+  frequency-table bounds are pinned via `freq_model`; the coder's
   refill loop and the `range`-scaling that maps a code value to a
   cumulative frequency are narrative the staged tables do not commit
-  to).
-- Channel-decorrelation reconstruction outside the documented
-  `R = X - Y/2`, `L = R + Y` skeleton.
-- `register!` framework wire-up and decoder factory.
+  to). It enters the frame pipeline as the `DeltaSource` boundary.
+- Which unpacked array is the correlation's `X` vs `Y`, and the
+  divide-vs-shift rounding (both carried as parameters).
+- `register!` framework wire-up and decoder factory (premature until
+  real-file PCM is reachable).
 
 These depend on the cleanroom `spec/` (Specifier role) being authored
 under `docs/audio/ape-cleanroom/spec/`.
