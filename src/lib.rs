@@ -126,6 +126,7 @@ pub mod error;
 pub mod filter_config;
 pub mod freq_model;
 pub mod header;
+pub mod pipeline;
 pub mod predictor;
 pub mod scalars;
 
@@ -133,8 +134,8 @@ pub use cascade::{
     cascade_decode, cascade_encode, filter_stage_decode, filter_stage_encode, StageState,
 };
 pub use decorrelate::{
-    decorrelate_pair, reconstruct_block, reconstruct_block_arith_shift, reconstruct_pair,
-    reconstruct_pair_arith_shift,
+    decorrelate_pair, decorrelate_pair_arith_shift, reconstruct_block,
+    reconstruct_block_arith_shift, reconstruct_pair, reconstruct_pair_arith_shift,
 };
 pub use error::{Error, Result};
 pub use filter_config::{
@@ -146,6 +147,9 @@ pub use freq_model::{
     MODEL_ELEMENTS, POWERS_OF_TWO_MINUS_ONE, RANGE_OVERFLOW_SHIFT, RANGE_TOTAL_WIDTH,
 };
 pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
+pub use pipeline::{
+    decode_frame, encode_frame, CorrelationRounding, DeltaSink, DeltaSource, FrameChannels,
+};
 pub use predictor::{
     adapt_sign, predict_dot, predict_step, predict_step_self_ref, residual_step,
     residual_step_self_ref,

@@ -169,6 +169,29 @@ pub const fn decorrelate_pair(l: i32, r: i32) -> (i32, i32) {
     (x, y)
 }
 
+/// Inverse of [`reconstruct_pair_arith_shift`]: recover `(X, Y)` from
+/// `(L, R)` with the arithmetic-shift spelling:
+///
+/// ```text
+///   Y = L - R
+///   X = R + (Y >> 1)
+/// ```
+///
+/// Because the same `Y >> 1` term is added here and subtracted by
+/// [`reconstruct_pair_arith_shift`], the composition is the identity
+/// for **every** `(L, R)` — exactly as [`decorrelate_pair`] composes
+/// with [`reconstruct_pair`] under the divide spelling. Each spelling
+/// pairs losslessly with its own inverse; only cross-pairing the two
+/// spellings can disagree (odd negative `Y`).
+///
+/// `const fn` so the inverse is usable in `const` contexts.
+#[inline]
+pub const fn decorrelate_pair_arith_shift(l: i32, r: i32) -> (i32, i32) {
+    let y = l - r;
+    let x = r + (y >> 1);
+    (x, y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

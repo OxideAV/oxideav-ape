@@ -11,6 +11,25 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Frame-decode orchestrator** (new [`pipeline`] module) — wires the
+  wiki §"General Decoding Process" stage ordering verbatim:
+  `decode_frame` unpacks every channel's delta array (channel 0, then
+  1), applies the caller's *"apply all IIR filters"* walk per array,
+  then — stereo only — reconstructs `(L, R)` from the filtered
+  `(X, Y)` pair. The unpinned entropy layer enters as the
+  `DeltaSource` trait boundary (with `DeltaSink` as the encoder
+  mirror), so whichever later phase pins the range decoder plugs in
+  without reshaping the frame walk. `encode_frame` is the mirror walk
+  (correlate → filter → pack); `FrameChannels` (mono/stereo) and
+  `CorrelationRounding` (`Y/2` vs `Y>>1`, the documented ambiguity)
+  parameterize the shape. Crate-local convention pending spec: array 0
+  = `X`, array 1 = `Y`. Also adds `decorrelate_pair_arith_shift` (the
+  exact inverse of `reconstruct_pair_arith_shift`, completing the
+  spelling pair). 8 unit tests: stage-ordering trail, X/Y convention,
+  rounding divergence on odd negative `Y`, error propagation, mono +
+  stereo end-to-end round-trips across **all five pinned level
+  cascades × both roundings** (lib suite 118 → 126).
+
 - **Buffer-at-a-time stage runner + cascade walk** (new [`cascade`]
   module) — `filter_stage_decode` / `filter_stage_encode` apply the
   pinned per-value recurrence (aliased-window reading) over a whole
