@@ -26,6 +26,34 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
   an explicit `EntropyInit` parameter.
 - `Error::CorruptStream` variant for entropy-stream states a
   well-formed stream cannot produce.
+- `file_header` module — the full §1 per-version header/tail layout:
+  the ≥ 3980 descriptor (alignment gap, forward-compat length skips,
+  64-bit frame-data count, MD5) + header block, the < 3980 flat header
+  with the pinned peak/seek-count/WAV-blob/seek-table tail order and
+  the ≤ 3800 seek bit table, §1.4 derived blocks-per-frame, §1.6
+  format flags with the old-era bits-per-sample rule, §1.7 derived
+  quantities, junk-prefix magic scan, and seek-table frame slicing.
+  `Error::Malformed` / `Error::NonFinalized` cover the layout
+  invariants.
+- `frame` module — the vendor per-frame layout, established black-box
+  against reference-encoder fixtures (the staged reference marks frame
+  priming and state reset as GAPs): the CRC/flags prologue
+  (`crc32(frame PCM) >> 1` + bit-31 flags marker; silence /
+  pseudo-stereo flag bits), the little-endian 32-bit word load behind
+  the §2.2 bit-array addressing, the one-byte structural pad before
+  the coder payload, the per-frame per-channel running-state init
+  (`KSum = 16384`), and per-sample stereo interleaving with
+  independent channel states.
+- `decoder` module — `ApeDecoder` whole-file facade (header parse +
+  frame slicing + entropy decode; exact PCM for flag-determined silent
+  frames, residual arrays otherwise, per-frame CRC verification) and
+  `FrameDeltaSource`, wiring the real entropy layer behind the
+  pipeline's `DeltaSource` boundary.
+- Vendor-encoded test fixtures (`tests/fixtures/*.ape`, reference
+  console encoder v13.18 over engineered PCM) with real-file
+  regression tests: bit-exact zero-run decode, first-sample residual
+  identities, full-payload coder consumption, silent-frame PCM + CRC
+  round-trips.
 
 ## [0.0.2](https://github.com/OxideAV/oxideav-ape/compare/v0.0.1...v0.0.2) - 2026-07-07
 

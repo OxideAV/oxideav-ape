@@ -68,6 +68,15 @@ pub enum Error {
     /// underflow, a zero radix, or an out-of-range working bit count).
     /// The payload names the primitive that tripped.
     CorruptStream(&'static str),
+    /// A header, descriptor, or tail structure violated a documented
+    /// layout invariant (an undersized descriptor, a non-monotonic
+    /// seek table, an out-of-bounds block reference, …). The payload
+    /// names the violated invariant.
+    Malformed(&'static str),
+    /// The file carries `total_frames == 0`, which the documented
+    /// derived-quantity rules define as a non-finalised (truncated)
+    /// encode and treat as an error.
+    NonFinalized,
 }
 
 impl core::fmt::Display for Error {
@@ -99,6 +108,12 @@ impl core::fmt::Display for Error {
             Error::CorruptStream(what) => {
                 write!(f, "oxideav-ape: corrupt entropy stream — {what}")
             }
+            Error::Malformed(what) => {
+                write!(f, "oxideav-ape: malformed file structure — {what}")
+            }
+            Error::NonFinalized => f.write_str(
+                "oxideav-ape: non-finalised file (total_frames == 0 marks a truncated encode)",
+            ),
         }
     }
 }

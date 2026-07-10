@@ -175,8 +175,15 @@ impl<'a> ResidualDecoder<'a> {
     /// caller-supplied running-state init (per-frame reset is a staged
     /// GAP — see [`EntropyInit`]).
     pub fn new(data: &'a [u8], file_version: u16, init: EntropyInit) -> Self {
+        Self::with_coder(RangeDecoder::new(data), file_version, init)
+    }
+
+    /// Prime a decoder over an already-constructed range decoder (e.g.
+    /// one whose bit input uses the vendor frame layout — see
+    /// [`crate::frame`]).
+    pub fn with_coder(rc: RangeDecoder<'a>, file_version: u16, init: EntropyInit) -> Self {
         ResidualDecoder {
-            rc: RangeDecoder::new(data),
+            rc,
             counts: counts_for_version(file_version),
             new_path: file_version >= crate::freq_model::FREQ_MODEL_VERSION_SPLIT,
             wide_k_split: file_version >= WIDE_K_SPLIT_VERSION,

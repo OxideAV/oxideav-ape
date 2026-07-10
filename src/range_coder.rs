@@ -96,31 +96,54 @@ pub struct BitInput<'a> {
     data: &'a [u8],
     bit_pos: u64,
     overrun: u32,
+    le_words: bool,
 }
 
 impl<'a> BitInput<'a> {
-    /// A bit array over `data`, positioned at `start_bit`.
+    /// A bit array over `data`, positioned at `start_bit`, with the
+    /// 32-bit words assembled big-endian from the bytes (word value ==
+    /// sequential byte order).
     pub fn new(data: &'a [u8], start_bit: u64) -> Self {
         BitInput {
             data,
             bit_pos: start_bit,
             overrun: 0,
+            le_words: false,
         }
     }
 
-    /// The 32-bit big-endian word at word index `index`, zero-padded
-    /// past the end of the buffer.
+    /// A bit array over `data` whose 32-bit words are **loaded
+    /// little-endian** from the bytes and then consumed MSB-first —
+    /// i.e. the byte consumption order is reversed within each 4-byte
+    /// group. This is the layout real vendor-encoded frames use
+    /// (established black-box against vendor-encoded fixtures; the
+    /// staged reference's "bit array addressed as 32-bit words" phrase
+    /// describes exactly this word-load indirection).
+    pub fn new_le_words(data: &'a [u8], start_bit: u64) -> Self {
+        BitInput {
+            data,
+            bit_pos: start_bit,
+            overrun: 0,
+            le_words: true,
+        }
+    }
+
+    /// The 32-bit word at word index `index`, zero-padded past the end
+    /// of the buffer, assembled per the constructor's byte order.
     fn word(&self, index: u64) -> u32 {
         let base = index.saturating_mul(4);
-        let mut w = 0u32;
-        for k in 0..4u64 {
-            let byte = usize::try_from(base + k)
+        let mut bytes = [0u8; 4];
+        for (k, slot) in bytes.iter_mut().enumerate() {
+            *slot = usize::try_from(base + k as u64)
                 .ok()
                 .and_then(|i| self.data.get(i).copied())
                 .unwrap_or(0);
-            w = (w << 8) | u32::from(byte);
         }
-        w
+        if self.le_words {
+            u32::from_le_bytes(bytes)
+        } else {
+            u32::from_be_bytes(bytes)
+        }
     }
 
     /// Read the byte at the current bit index per the §2.2 addressing

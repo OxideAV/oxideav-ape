@@ -853,6 +853,12 @@ mod tests {
                     Err(Error::CorruptStream(_)) => panic!(
                         "CorruptStream leaked out of parse() at offset {offset}; that variant belongs to the range decoder, not the binary prefix parser"
                     ),
+                    Err(Error::Malformed(_)) => panic!(
+                        "Malformed leaked out of parse() at offset {offset}; that variant belongs to the full-layout parser, not the binary prefix parser"
+                    ),
+                    Err(Error::NonFinalized) => panic!(
+                        "NonFinalized leaked out of parse() at offset {offset}; that variant belongs to the full-layout parser, not the binary prefix parser"
+                    ),
                 }
             }
         }

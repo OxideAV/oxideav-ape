@@ -136,10 +136,13 @@
 
 pub mod cascade;
 pub mod config;
+pub mod decoder;
 pub mod decorrelate;
 pub mod entropy;
 pub mod error;
+pub mod file_header;
 pub mod filter_config;
+pub mod frame;
 pub mod freq_model;
 pub mod header;
 pub mod pipeline;
