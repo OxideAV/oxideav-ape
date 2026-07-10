@@ -21,7 +21,8 @@
 //! the two separately-extracted tables agree (`freq[i] ==
 //! counts[i + 1] - counts[i]`) — a provenance cross-check the derived
 //! form could not provide. The total width `65536 == 1 << 16` and the
-//! symbol count `64` are the [`scalars`] bounds the extractor pinned.
+//! symbol count `64` are the [`crate::scalars`] bounds the extractor
+//! pinned.
 //!
 //! This module ships the **data + the two interval lookups the table
 //! shape itself dictates** — symbol → `[low, width)` interval, and

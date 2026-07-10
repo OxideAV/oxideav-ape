@@ -161,6 +161,16 @@ impl<'a> BitInput<'a> {
         byte
     }
 
+    /// Read 32 bits MSB-first (four byte reads) — the width the vendor
+    /// frame prologue words are read at through the bit array.
+    pub fn read_u32(&mut self) -> u32 {
+        let mut w = 0u32;
+        for _ in 0..4 {
+            w = (w << 8) | u32::from(self.read_byte());
+        }
+        w
+    }
+
     /// Current bit index.
     pub fn bit_pos(&self) -> u64 {
         self.bit_pos

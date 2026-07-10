@@ -54,6 +54,19 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
   regression tests: bit-exact zero-run decode, first-sample residual
   identities, full-payload coder consumption, silent-frame PCM + CRC
   round-trips.
+- Multi-frame geometry (pinned black-box with a two-frame fixture
+  whose second frame starts word-unaligned): the frame bit array's
+  word grid is anchored at the **audio-data start** and shared by all
+  frames, and the prologue words are read *through* that bit array —
+  `decode_frame_residuals` now takes the audio region + frame byte
+  offset, and `ApeDecoder` gained `audio_region()`.
+- `MAX_FRAME_BLOCKS` allocation guard: a corrupted
+  blocks-per-frame/final-frame-blocks header can no longer drive
+  multi-gigabyte residual allocations (found by the fixture corruption
+  sweep, which is now part of the test suite).
+- Root re-exports for the new layers (`ApeDecoder`, `FrameDecode`,
+  `FrameDeltaSource`, `FileInfo`, `FrameResiduals`, `ResidualDecoder`
+  / `ResidualEncoder`, `RangeDecoder` / `RangeEncoder`, `crc32`, …).
 
 ## [0.0.2](https://github.com/OxideAV/oxideav-ape/compare/v0.0.1...v0.0.2) - 2026-07-07
 

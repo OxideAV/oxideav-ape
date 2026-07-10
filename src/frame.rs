@@ -1,6 +1,6 @@
 //! Vendor frame layout — the per-frame prologue, entropy-region
 //! geometry, and channel interleaving that turn a seek-table frame
-//! slice into residual arrays.
+//! position into residual arrays.
 //!
 //! The staged `docs/audio/ape/format-reference.md` §4 marks the frame
 //! boundary / bit-array priming and the per-frame running-state reset
@@ -9,31 +9,38 @@
 //! frames produced by the vendor reference binary (v13.18 console
 //! encoder, file version 3990) over engineered PCM inputs — silence
 //! runs, zero-prefixed noise, single-sample spikes, equal-channel and
-//! one-channel-silent stereo. No implementation source of any kind was
+//! one-channel-silent stereo, and a two-frame file whose second frame
+//! starts word-unaligned. No implementation source of any kind was
 //! consulted. The empirical findings, each validated to bit-exact /
 //! full-payload-consumption fitness:
 //!
-//! 1. **Prologue** (read little-endian from the raw frame bytes): one
-//!    `u32` whose bits 30..0 are `crc32(decoded frame PCM bytes) >> 1`
-//!    (standard reflected CRC-32) and whose bit 31 marks that a second
-//!    `u32` of [`FrameFlags`] follows.
-//! 2. **Frame flags**: bit 0 / bit 1 — the corresponding PCM channel
-//!    is silent (all-zero); bit 2 — the two stereo channels are
-//!    identical ("pseudo-stereo"). A fully-silent frame carries no
-//!    entropy payload at all; a pseudo-stereo frame carries **one**
-//!    coded array; partial silence changes nothing about the layout.
-//! 3. **Entropy bit array**: the frame bytes addressed as 32-bit words
-//!    **loaded little-endian** and consumed MSB-first (the §2.2 word
-//!    indirection), starting one byte past the prologue — that first
-//!    byte is a structural pad the coder never treats as payload
-//!    ([`FRAME_PRIME_PAD_BYTES`]).
-//! 4. **Running-state init**: `KSum = 16384` per channel per frame
+//! 1. **One bit array per file**: the whole audio-data region is a
+//!    single bit array of 32-bit words **loaded little-endian** and
+//!    consumed MSB-first (the §2.2 word indirection, with the word
+//!    grid anchored at the audio-data start). Frame `i` begins at bit
+//!    `(seek[i] - audio_start) * 8`; frame starts are byte-aligned but
+//!    **not** word-aligned, so every multi-byte read goes through the
+//!    bit array.
+//! 2. **Prologue** (read as MSB-first 32-bit values *through the bit
+//!    array*): one word whose bits 30..0 are `crc32(decoded frame PCM
+//!    bytes) >> 1` (standard reflected CRC-32) and whose bit 31 marks
+//!    that a second word of [`FrameFlags`] follows.
+//! 3. **Frame flags**: bit 0 / bit 1 — a PCM channel is silent for
+//!    the whole frame; bit 2 — the two stereo channels are identical
+//!    ("pseudo-stereo"). A fully-silent frame carries no entropy
+//!    payload at all; a pseudo-stereo frame carries **one** coded
+//!    array; partial silence changes nothing about the layout.
+//! 4. **Coder head**: one byte past the prologue is structural pad the
+//!    coder never treats as payload ([`FRAME_PRIME_PAD_BYTES`]); the
+//!    range decoder then primes per the staged-constants inference
+//!    (first byte's top `EXTRA_BITS` bits).
+//! 5. **Running-state init**: `KSum = 16384` per channel per frame
 //!    ([`FRAME_KSUM_INIT`], pinned by matching the coded size of a
 //!    4000-zero run to the byte). `k = 10` is the ladder position that
-//!    `K_SUM_MIN_BOUNDARY` assigns to that `KSum`
-//!    ([`FRAME_K_INIT`]; the old-path `k` cannot be exercised against
-//!    the current vendor encoder, which emits 3990-era streams only).
-//! 5. **Stereo interleaving**: the two arrays are coded **per-sample
+//!    `K_SUM_MIN_BOUNDARY` assigns to that `KSum` ([`FRAME_K_INIT`];
+//!    the old-path `k` cannot be exercised against the current vendor
+//!    encoder, which emits 3990-era streams only).
+//! 6. **Stereo interleaving**: the two arrays are coded **per-sample
 //!    interleaved** over one shared coder, with *independent*
 //!    per-channel running states. (The wiki's "unpack array … then the
 //!    second array" listing describes the logical result, not the
@@ -67,6 +74,12 @@ pub const FRAME_ENTROPY_INIT: EntropyInit = EntropyInit {
     ksum: FRAME_KSUM_INIT,
 };
 
+/// Upper bound on a single frame's block count accepted by the frame
+/// decoder. Every documented blocks-per-frame value is at most 294912
+/// (`73728 * 4`); the guard leaves generous headroom while keeping a
+/// corrupted header from driving multi-gigabyte allocations.
+pub const MAX_FRAME_BLOCKS: u32 = 1 << 20;
+
 /// Standard reflected CRC-32 (polynomial `0xEDB88320`, init/xorout
 /// `0xFFFF_FFFF`) — the checksum family the frame prologue stores over
 /// the frame's decoded PCM bytes.
@@ -82,7 +95,7 @@ pub fn crc32(data: &[u8]) -> u32 {
     !crc
 }
 
-/// §(empirical) per-frame flags word.
+/// Per-frame flags word (empirical; see module docs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct FrameFlags(pub u32);
 
@@ -126,28 +139,22 @@ pub struct FramePrologue {
 }
 
 impl FramePrologue {
-    /// Parse the prologue off the head of a frame slice.
-    pub fn parse(frame: &[u8]) -> Result<Self> {
-        if frame.len() < 4 {
-            return Err(Error::Truncated);
-        }
-        let word0 = u32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]);
+    /// Read the prologue through the frame bit array (one or two
+    /// MSB-first 32-bit reads).
+    pub fn read(input: &mut BitInput<'_>) -> Self {
+        let word0 = input.read_u32();
         if word0 & 0x8000_0000 != 0 {
-            if frame.len() < 8 {
-                return Err(Error::Truncated);
-            }
-            let flags = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
-            Ok(FramePrologue {
+            FramePrologue {
                 crc31: word0 & 0x7FFF_FFFF,
-                flags: Some(FrameFlags(flags)),
+                flags: Some(FrameFlags(input.read_u32())),
                 len: 8,
-            })
+            }
         } else {
-            Ok(FramePrologue {
+            FramePrologue {
                 crc31: word0,
                 flags: None,
                 len: 4,
-            })
+            }
         }
     }
 
@@ -169,22 +176,27 @@ pub struct FrameResiduals {
     /// X/Y naming awaits the staged decorrelation orientation), or one
     /// shared array for pseudo-stereo.
     pub arrays: Vec<Vec<i32>>,
-    /// Coder bit position after the last symbol (frame-payload
-    /// accounting; bits are relative to the frame slice).
+    /// Coder bit position after the last symbol, relative to the
+    /// audio-data region (frame-payload accounting).
     pub end_bit_pos: u64,
     /// Whether the flags fully determine the frame's PCM (all-silent
     /// frames): every channel is zero for the whole frame.
     pub silent: bool,
 }
 
-/// Decode one frame slice (from [`crate::file_header::FileInfo::frame_byte_range`])
-/// into its residual arrays.
+/// Decode one frame into its residual arrays.
 ///
+/// `audio` is the **whole audio-data region** (the file from
+/// [`crate::file_header::FileInfo::audio_data_offset`] to
+/// [`crate::file_header::FileInfo::audio_data_end`]) — the bit array's
+/// word grid is anchored at its start. `frame_byte_offset` is the
+/// frame's byte offset within that region (`seek[i] - audio_start`);
 /// `blocks` is the frame's audio block count
 /// ([`crate::file_header::FileInfo::frame_blocks`]); `channels` is 1
 /// or 2 (multichannel ≥ 3 is outside the staged material).
 pub fn decode_frame_residuals(
-    frame: &[u8],
+    audio: &[u8],
+    frame_byte_offset: usize,
     file_version: u16,
     channels: u16,
     blocks: u32,
@@ -192,7 +204,14 @@ pub fn decode_frame_residuals(
     if !(1..=2).contains(&channels) {
         return Err(Error::Malformed("channel count outside the staged 1..=2"));
     }
-    let prologue = FramePrologue::parse(frame)?;
+    if blocks > MAX_FRAME_BLOCKS {
+        return Err(Error::Malformed("frame block count exceeds the sane bound"));
+    }
+    if frame_byte_offset + 4 > audio.len() {
+        return Err(Error::Truncated);
+    }
+    let mut input = BitInput::new_le_words(audio, (frame_byte_offset as u64) * 8);
+    let prologue = FramePrologue::read(&mut input);
     let flags = prologue.flags.unwrap_or_default();
     let n = blocks as usize;
 
@@ -201,15 +220,15 @@ pub fn decode_frame_residuals(
         return Ok(FrameResiduals {
             prologue,
             arrays: vec![vec![0i32; n]; usize::from(channels)],
-            end_bit_pos: (prologue.len as u64) * 8,
+            end_bit_pos: input.bit_pos(),
             silent: true,
         });
     }
 
-    // Entropy bit array: LE-loaded words over the whole frame slice,
-    // starting one pad byte past the prologue.
-    let start_bit = ((prologue.len + FRAME_PRIME_PAD_BYTES) as u64) * 8;
-    let input = BitInput::new_le_words(frame, start_bit);
+    // One structural pad byte, then the coder primes off the array.
+    for _ in 0..FRAME_PRIME_PAD_BYTES {
+        input.read_byte();
+    }
     let rc = RangeDecoder::with_input(input);
     let mut dec = ResidualDecoder::with_coder(rc, file_version, FRAME_ENTROPY_INIT);
 
@@ -255,32 +274,41 @@ mod tests {
 
     #[test]
     fn prologue_without_flag_bit_is_four_bytes() {
-        let frame = [0x4D, 0x2B, 0x04, 0x71, 0xAA, 0xBB];
-        let p = FramePrologue::parse(&frame).unwrap();
+        // Word-aligned start: the bit-array 32-bit read equals the
+        // little-endian load of the four raw bytes.
+        let raw = [0x4D, 0x2B, 0x04, 0x71, 0xAA, 0xBB, 0xCC, 0xDD];
+        let mut input = BitInput::new_le_words(&raw, 0);
+        let p = FramePrologue::read(&mut input);
         assert_eq!(p.crc31, 0x7104_2B4D);
         assert_eq!(p.flags, None);
         assert_eq!(p.len, 4);
+        assert_eq!(input.bit_pos(), 32);
     }
 
     #[test]
     fn prologue_with_flag_bit_reads_the_flags_word() {
         // First word with bit 31 set, then flags = 7.
-        let frame = [0xBB, 0x36, 0x37, 0xAC, 0x07, 0x00, 0x00, 0x00];
-        let p = FramePrologue::parse(&frame).unwrap();
+        let raw = [0xBB, 0x36, 0x37, 0xAC, 0x07, 0x00, 0x00, 0x00];
+        let mut input = BitInput::new_le_words(&raw, 0);
+        let p = FramePrologue::read(&mut input);
         assert_eq!(p.crc31, 0x2C37_36BB);
         assert_eq!(p.flags, Some(FrameFlags(7)));
         assert_eq!(p.len, 8);
+        assert_eq!(input.bit_pos(), 64);
     }
 
     #[test]
-    fn prologue_rejects_short_frames() {
-        assert_eq!(
-            FramePrologue::parse(&[1, 2, 3]).unwrap_err(),
-            Error::Truncated
-        );
-        // Flag bit set but no room for the flags word.
-        let frame = [0x00, 0x00, 0x00, 0x80, 0x07];
-        assert_eq!(FramePrologue::parse(&frame).unwrap_err(), Error::Truncated);
+    fn prologue_reads_through_the_word_grid_when_unaligned() {
+        // A frame starting at byte 1 of the audio region: the 32-bit
+        // read must assemble across the LE-word grid, not from raw
+        // sequential bytes. Grid words: LE(b3 b2 b1 b0), consumed
+        // MSB-first — so bits 8..40 are b2 b1 b0 b7.
+        let raw = [0xB0, 0xB1, 0x12, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7];
+        let mut input = BitInput::new_le_words(&raw, 8);
+        let p = FramePrologue::read(&mut input);
+        assert_eq!(p.crc31, 0x12B1_B0B7);
+        assert_eq!(p.flags, None);
+        assert_eq!(p.len, 4);
     }
 
     #[test]
@@ -297,9 +325,10 @@ mod tests {
     #[test]
     fn silent_frame_decodes_to_zero_arrays_without_entropy() {
         // A fully-silent stereo frame: prologue only, no payload.
-        let frame = [0xBB, 0x36, 0x37, 0xAC, 0x07, 0x00, 0x00, 0x00];
-        let out = decode_frame_residuals(&frame, 3990, 2, 64).unwrap();
+        let audio = [0xBB, 0x36, 0x37, 0xAC, 0x07, 0x00, 0x00, 0x00];
+        let out = decode_frame_residuals(&audio, 0, 3990, 2, 64).unwrap();
         assert!(out.silent);
+        assert_eq!(out.end_bit_pos, 64);
         assert_eq!(out.arrays.len(), 2);
         assert!(out
             .arrays
@@ -311,24 +340,46 @@ mod tests {
     fn crc_verify_accepts_matching_pcm() {
         // Stored word = crc32(pcm) >> 1 with bit 31 as the flag marker.
         let pcm = vec![0u8; 256];
-        let stored = (crc32(&pcm) >> 1) | 0x8000_0000;
-        let mut frame = stored.to_le_bytes().to_vec();
-        frame.extend_from_slice(&3u32.to_le_bytes());
-        let p = FramePrologue::parse(&frame).unwrap();
+        let p = FramePrologue {
+            crc31: crc32(&pcm) >> 1,
+            flags: Some(FrameFlags(3)),
+            len: 8,
+        };
         assert!(p.matches_pcm_crc(&pcm));
         assert!(!p.matches_pcm_crc(&[1, 2, 3]));
     }
 
     #[test]
-    fn rejects_unstaged_channel_counts() {
-        let frame = [0u8; 16];
+    fn rejects_unstaged_channel_counts_and_truncation() {
+        let audio = [0u8; 16];
         assert!(matches!(
-            decode_frame_residuals(&frame, 3990, 0, 4),
+            decode_frame_residuals(&audio, 0, 3990, 0, 4),
             Err(Error::Malformed(_))
         ));
         assert!(matches!(
-            decode_frame_residuals(&frame, 3990, 3, 4),
+            decode_frame_residuals(&audio, 0, 3990, 3, 4),
             Err(Error::Malformed(_))
         ));
+        assert_eq!(
+            decode_frame_residuals(&audio, 14, 3990, 1, 4).unwrap_err(),
+            Error::Truncated
+        );
+    }
+
+    #[test]
+    fn oversized_block_counts_are_rejected_before_allocation() {
+        // A corrupted header must not drive a multi-gigabyte residual
+        // allocation: the guard fires before any buffer is sized.
+        let audio = [0u8; 16];
+        assert!(matches!(
+            decode_frame_residuals(&audio, 0, 3990, 1, MAX_FRAME_BLOCKS + 1),
+            Err(Error::Malformed(_))
+        ));
+        assert!(matches!(
+            decode_frame_residuals(&audio, 0, 3990, 2, u32::MAX),
+            Err(Error::Malformed(_))
+        ));
+        // Every documented blocks-per-frame value stays well inside.
+        const { assert!(294912 < MAX_FRAME_BLOCKS) };
     }
 }

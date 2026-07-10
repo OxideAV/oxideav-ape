@@ -67,11 +67,27 @@ impl<'a> ApeDecoder<'a> {
         Ok(&self.data[start..end])
     }
 
+    /// The whole audio-data region — the frame bit array's word grid
+    /// is anchored at its start.
+    pub fn audio_region(&self) -> Result<&'a [u8]> {
+        let start = self.info.audio_data_offset;
+        let end = self.info.audio_data_end();
+        let end = usize::try_from(end).map_err(|_| Error::Truncated)?;
+        if end > self.data.len() || start > end {
+            return Err(Error::Truncated);
+        }
+        Ok(&self.data[start..end])
+    }
+
     /// Decode frame `index` through the entropy layer.
     pub fn frame_residuals(&self, index: u32) -> Result<FrameResiduals> {
-        let frame = self.frame_bytes(index)?;
+        let (start, _) = self.info.frame_byte_range(index)?;
+        let offset = (start as usize)
+            .checked_sub(self.info.audio_data_offset)
+            .ok_or(Error::Malformed("seek entry before the audio region"))?;
         decode_frame_residuals(
-            frame,
+            self.audio_region()?,
+            offset,
             self.info.version,
             self.info.channels,
             self.info.frame_blocks(index)?,
@@ -115,9 +131,17 @@ pub struct FrameDeltaSource {
 }
 
 impl FrameDeltaSource {
-    /// Build the source by running the entropy layer over `frame`.
-    pub fn decode(frame: &[u8], file_version: u16, channels: u16, blocks: u32) -> Result<Self> {
-        let out = decode_frame_residuals(frame, file_version, channels, blocks)?;
+    /// Build the source by running the entropy layer over the frame at
+    /// `frame_byte_offset` within the `audio` region (see
+    /// [`decode_frame_residuals`]).
+    pub fn decode(
+        audio: &[u8],
+        frame_byte_offset: usize,
+        file_version: u16,
+        channels: u16,
+        blocks: u32,
+    ) -> Result<Self> {
+        let out = decode_frame_residuals(audio, frame_byte_offset, file_version, channels, blocks)?;
         let pseudo_stereo = channels == 2 && out.arrays.len() == 1;
         Ok(FrameDeltaSource {
             arrays: out.arrays,

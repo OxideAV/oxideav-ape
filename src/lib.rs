@@ -1,9 +1,14 @@
 //! # oxideav-ape
 //!
 //! **Status:** clean-room build-out — every layer the staged docs pin
-//! is implemented; real-file decode waits on the unauthored cleanroom
-//! `spec/` (range-coder state machine, header tail, per-version
-//! `delta[]` rule).
+//! is implemented, including (since the `format-reference.md` staging)
+//! the complete range decoder, the full per-version header/tail
+//! extraction, and a vendor frame layer validated **bit-exact against
+//! reference-binary-encoded files**. Real `.ape` files parse and their
+//! residual arrays decode with full-payload coder consumption; silent
+//! frames decode to exact PCM with verified CRCs. Non-silent PCM
+//! awaits the predictor narrative (per-version `delta[]` rule, `shift`
+//! position, decorrelation orientation).
 //!
 //! Pure-Rust scaffold for **Monkey's Audio** (`.ape`), the lossless
 //! audio codec authored by Matthew T. Ashland and distributed as the
@@ -88,25 +93,39 @@
 //! boundary. The pipeline round-trips PCM end-to-end in
 //! self-consistency across all five pinned level cascades.
 //!
-//! Everything past offset 8 — version-specific sound-parameters,
-//! frame count, seek table, optional embedded WAV header — plus the
-//! range decoder's renormalisation / byte-input **state machine**, the
-//! per-version `delta[]` history maintenance rule, and the residual-coding
-//! `k`-parameter recurrence remain **out of scope**. The staged
-//! `tables/` pin the frequency model as data but the cleanroom `spec/`
-//! directory that would describe the coder's renormalisation narrative
-//! has not yet been authored, so the byte-input state machine is left to
-//! a later phase rather than guessed.
+//! Phase 4 lands the real-file layers the staged
+//! `docs/audio/ape/format-reference.md` pins: the carryless range
+//! decoder ([`range_coder`], §2.1–§2.4, with a crate-derived encoder
+//! mirror), the per-residual entropy codec for both version paths
+//! ([`entropy`], §2.5–§2.9, per-frame init injected as
+//! [`entropy::EntropyInit`]), the full per-version header/tail
+//! extraction ([`file_header`], §1 — both eras, descriptors, seek
+//! tables, derived quantities), the vendor frame layout established
+//! black-box against reference-binary fixtures ([`frame`] — CRC/flags
+//! prologue, LE-word bit array, per-frame state init, stereo
+//! interleave), and the whole-file facade ([`decoder::ApeDecoder`] +
+//! [`decoder::FrameDeltaSource`] wiring the entropy layer behind the
+//! [`pipeline::DeltaSource`] boundary).
+//!
+//! Still out of scope: the predictor pass between residual arrays and
+//! PCM — the per-version `delta[]` history maintenance, the per-stage
+//! `shift` position, the stage-1/adaptive composition, and the
+//! decorrelation orientation on real streams — plus 24-bit / ≥ 3
+//! channel reassembly and the old-era frame `k` init (unexercisable
+//! black-box: the current vendor encoder emits 3990-era streams only).
 //!
 //! ## Allowed reference material (clean-room wall)
 //!
-//! Only the workspace-local mirror of the multimedia.cx wiki page at
-//! `docs/audio/ape/wiki/Monkeys_Audio.wiki` plus the clean-room
-//! extractor tables under `docs/audio/ape-cleanroom/` were consulted
-//! for this crate. No external implementation source of any kind, and
-//! no online lookups, were used. Black-box validation against the
-//! reference encoder binary is a future-round option once enough of
-//! the decoder lands to produce comparable PCM output.
+//! Three staged sources were consulted: the format reference at
+//! `docs/audio/ape/format-reference.md`, the workspace-local mirror of
+//! the multimedia.cx wiki page at
+//! `docs/audio/ape/wiki/Monkeys_Audio.wiki`, and the clean-room
+//! extractor tables under `docs/audio/ape-cleanroom/tables/`. No
+//! external implementation source of any kind, and no online lookups,
+//! were used. The reference **binary** (console encoder v13.18) was
+//! used strictly black-box — invoked as an opaque tool over engineered
+//! PCM inputs to pin the frame-layout facts the format reference marks
+//! as GAPs and to produce the committed test fixtures.
 //!
 //! ## Quick example
 //!
@@ -154,13 +173,22 @@ pub use cascade::{
     cascade_decode, cascade_encode, filter_stage_decode, filter_stage_encode, StageState,
 };
 pub use config::StreamConfig;
+pub use decoder::{ApeDecoder, FrameDecode, FrameDeltaSource};
 pub use decorrelate::{
     decorrelate_pair, decorrelate_pair_arith_shift, reconstruct_block,
     reconstruct_block_arith_shift, reconstruct_pair, reconstruct_pair_arith_shift,
 };
+pub use entropy::{
+    fold_residual, unfold_residual, EntropyInit, ResidualDecoder, ResidualEncoder,
+    K_SUM_MIN_BOUNDARY,
+};
 pub use error::{Error, Result};
+pub use file_header::{ApeDescriptor, FileInfo, FormatFlags};
 pub use filter_config::{
     cascade_for_level, FilterCascade, FilterStage, FILTER_STAGES, MAX_CASCADE_DEPTH,
+};
+pub use frame::{
+    crc32, decode_frame_residuals, FrameFlags, FramePrologue, FrameResiduals, FRAME_ENTROPY_INIT,
 };
 pub use freq_model::{
     counts_for_version, freqs_for_version, symbol_for_cum_freq, symbol_interval, symbol_width,
@@ -175,6 +203,7 @@ pub use predictor::{
     adapt_sign, predict_dot, predict_step, predict_step_self_ref, residual_step,
     residual_step_self_ref,
 };
+pub use range_coder::{BitInput, RangeDecoder, RangeEncoder};
 pub use scalars::{
     ksum_pivot, stage1_predict, KSUM_PIVOT_DIVISOR, PREDICTOR_HISTORY_SEED, STAGE1_FILTER_SHIFT,
     STAGE1_FILTER_WEIGHT,

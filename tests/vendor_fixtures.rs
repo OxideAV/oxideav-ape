@@ -13,6 +13,7 @@
 //! | `zeros_then_noise_mono.ape` | 4000 zero samples then 4000 uniform ±2000 noise samples, mono, level 1000 |
 //! | `noise_stereo.ape` | 6000 uniform ±3000 noise sample-frames, stereo, level 1000 |
 //! | `left_silent_stereo.ape` | 3000 sample-frames: left silent, right ±1500 noise, level 1000 |
+//! | `two_frame_mono8k.ape` | 78728 mono 8 kHz samples (one full 73728-block silent frame, then a 5000-block final frame with a single 1234 spike at block 100), level 1000 |
 //!
 //! The anchored residual values below are regression pins: their
 //! *validity* is established by the relations the fixtures make
@@ -33,6 +34,7 @@ const TONE_LR_EQUAL: &[u8] = include_bytes!("fixtures/tone_lr_equal.ape");
 const ZEROS_THEN_NOISE: &[u8] = include_bytes!("fixtures/zeros_then_noise_mono.ape");
 const NOISE_STEREO: &[u8] = include_bytes!("fixtures/noise_stereo.ape");
 const LEFT_SILENT: &[u8] = include_bytes!("fixtures/left_silent_stereo.ape");
+const TWO_FRAME: &[u8] = include_bytes!("fixtures/two_frame_mono8k.ape");
 
 #[test]
 fn header_fields_parse_from_every_fixture() {
@@ -191,6 +193,62 @@ fn partial_silence_keeps_the_two_array_layout() {
 }
 
 #[test]
+fn two_frame_file_re_primes_the_coder_at_the_second_frame() {
+    // Frame 0: one full silent frame (73728 blocks, flag-determined
+    // PCM). Frame 1: a 5000-block final frame starting word-unaligned
+    // within the audio region's bit-array grid, whose source PCM is a
+    // single 1234 spike at block 100 — so the decode pins the
+    // per-frame coder re-prime, the per-frame running-state reset, and
+    // the audio-region-anchored word grid all at once.
+    let dec = ApeDecoder::new(TWO_FRAME).unwrap();
+    let info = dec.info();
+    assert_eq!(info.total_frames, 2);
+    assert_eq!(info.channels, 1);
+    assert_eq!(info.sample_rate, 8000);
+    assert_eq!(info.frame_blocks(0).unwrap(), 73728);
+    assert_eq!(info.frame_blocks(1).unwrap(), 5000);
+    // The second seek entry is not word-aligned relative to the audio
+    // start — the case that pins the shared word grid.
+    let audio_start = info.seek_table[0];
+    assert_ne!((info.seek_table[1] - audio_start) % 4, 0);
+
+    match dec.decode_frame(0).unwrap() {
+        FrameDecode::Pcm(pcm) => {
+            assert_eq!(pcm.len(), 1);
+            assert_eq!(pcm[0].len(), 73728);
+            assert!(pcm[0].iter().all(|&v| v == 0));
+        }
+        other => panic!("silent frame 0 must decode to PCM, got {other:?}"),
+    }
+    assert!(dec.verify_frame_crc(0, &vec![0u8; 73728 * 2]).unwrap());
+
+    let out = dec.frame_residuals(1).unwrap();
+    assert_eq!(out.arrays.len(), 1);
+    let r = &out.arrays[0];
+    assert_eq!(r.len(), 5000);
+    assert!(
+        r[..100].iter().all(|&v| v == 0),
+        "zero prefix before the spike"
+    );
+    assert_eq!(
+        r[100], 1234,
+        "the spike survives the empty predictor history"
+    );
+    // The stored frame-1 CRC matches the known source PCM.
+    let mut pcm = vec![0i16; 5000];
+    pcm[100] = 1234;
+    let bytes: Vec<u8> = pcm.iter().flat_map(|s| s.to_le_bytes()).collect();
+    assert!(dec.verify_frame_crc(1, &bytes).unwrap());
+    // Full-payload consumption relative to the audio region.
+    let audio_len = dec.audio_region().unwrap().len() as u64;
+    let consumed = out.end_bit_pos / 8;
+    assert!(
+        consumed <= audio_len + 4 && consumed + 16 >= audio_len,
+        "coder consumed {consumed} of the {audio_len}-byte audio region"
+    );
+}
+
+#[test]
 fn frame_delta_source_feeds_the_pipeline_from_a_real_frame() {
     use oxideav_ape::decoder::FrameDeltaSource;
     use oxideav_ape::pipeline::{decode_frame, CorrelationRounding, FrameChannels};
@@ -198,7 +256,8 @@ fn frame_delta_source_feeds_the_pipeline_from_a_real_frame() {
     let dec = ApeDecoder::new(NOISE_STEREO).unwrap();
     let info = dec.info();
     let mut src = FrameDeltaSource::decode(
-        dec.frame_bytes(0).unwrap(),
+        dec.audio_region().unwrap(),
+        0,
         info.version,
         info.channels,
         info.frame_blocks(0).unwrap(),
@@ -250,4 +309,34 @@ fn consumed_full_payload(out: &oxideav_ape::frame::FrameResiduals, frame_len: us
 #[test]
 fn crc32_reference_vector_holds() {
     assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+}
+
+#[test]
+fn corrupted_fixtures_never_panic() {
+    // Single-byte corruption of a real file must yield Ok (garbage
+    // values are fine) or a clean Err — never a panic — through the
+    // whole parse + entropy pipeline. Sweep the entire header/tail
+    // densely and the payload with a stride (each payload decode walks
+    // 8000 residuals).
+    let base = ZEROS_THEN_NOISE;
+    let positions = (0..192).chain((192..base.len()).step_by(97));
+    for pos in positions {
+        let mut data = base.to_vec();
+        data[pos] ^= 0xA5;
+        if let Ok(dec) = ApeDecoder::new(&data) {
+            for i in 0..dec.frame_count().min(4) {
+                let _ = dec.decode_frame(i);
+            }
+        }
+    }
+    // Truncation across the whole header region and strided through
+    // the payload, on the multi-frame fixture.
+    let lengths = (0..192).chain((192..TWO_FRAME.len()).step_by(61));
+    for len in lengths {
+        if let Ok(dec) = ApeDecoder::new(&TWO_FRAME[..len]) {
+            for i in 0..dec.frame_count().min(4) {
+                let _ = dec.decode_frame(i);
+            }
+        }
+    }
 }

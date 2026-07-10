@@ -8,17 +8,18 @@ reference binary at <http://www.monkeysaudio.com/>. Monkey's Audio
 pairs channel decorrelation, a cascade of IIR predictors, and a
 range-coded residual into a lossless integer-PCM round-trip.
 
-The crate currently ships every layer the staged clean-room docs pin:
-the 8-byte header prefix, the channel-correlation closed forms (both
-rounding spellings, both directions), the adaptive predictor step and
-its algebraic inverse, the buffer/cascade filter walk over the pinned
-per-level `(order, shift)` stages, the §"General Decoding Process"
-frame orchestration behind a `DeltaSource`/`DeltaSink` entropy
-boundary, the range-coder frequency model tables, and the two pinned
-scalar closed forms. The pipeline round-trips PCM end-to-end in
-self-consistency; **real-file decode** waits on the unauthored
-cleanroom `spec/` (range-coder state machine, header tail, per-version
-`delta[]` rule — see "Out of scope").
+The crate ships every layer the staged clean-room docs pin — and, as
+of the `format-reference.md` staging, that now includes the **complete
+range decoder** (both version paths), the **full per-version
+header/tail extraction** for both file eras, and a **vendor frame
+layer validated bit-exact against reference-binary-encoded files**:
+real `.ape` files parse end-to-end and their residual arrays decode
+with full-payload coder consumption, verified per-frame CRCs, and
+exact PCM for flag-determined silent frames. What still separates
+residual arrays from PCM on non-silent frames is the adaptive
+predictor pass (per-version `delta[]` maintenance, per-stage `shift`
+position, decorrelation orientation) — narrative the staged docs do
+not yet pin (see "Out of scope").
 
 **Phase 1** lands the 8-byte file-header prefix the staged docs at
 `docs/audio/ape/wiki/Monkeys_Audio.wiki` pin:
@@ -330,6 +331,82 @@ assert_eq!(cfg.cascade().len(), 1); // normal: one order-16 stage
 assert_eq!(cfg.counts()[64], 65536); // version-selected counts table
 ```
 
+## Range decoder + residual entropy codec
+
+The staged `docs/audio/ape/format-reference.md` §2 pins the carryless
+byte-oriented range coder end-to-end, and the `range_coder` +
+`entropy` modules implement it: the §2.1 constants
+(`TOP_VALUE`/`BOTTOM_VALUE`/`SHIFT_BITS`/`EXTRA_BITS`), the §2.2
+word-addressed byte input, the §2.3 renormalisation with the 9-bit
+carry window (`(buffer >> 1) & 0xFF`), the §2.4 decode primitives, the
+§2.5 overflow-symbol lookup against the version-split frequency
+models, the §2.6 `>= 3990` pivot/overflow decode (with the
+16-bit-ceiling two-division base split), the §2.7 `< 3990`
+adaptive-`k` decode (with the 3910 wide-`k` split and the 5-bit
+escape), the §2.8 `KSum` recurrence + `K_SUM_MIN_BOUNDARY` ladder, and
+the §2.9 signed unfold. Crate-derived encoder mirrors
+(`RangeEncoder` / `ResidualEncoder`) exercise every branch in
+round-trip tests across all version boundaries.
+
+```rust
+use oxideav_ape::entropy::{EntropyInit, ResidualDecoder, ResidualEncoder};
+
+let init = EntropyInit { k: 10, ksum: 16384 };
+let mut enc = ResidualEncoder::new(3990, init);
+for r in [0i32, -5, 1234, -100_000] {
+    enc.encode_residual(r).unwrap();
+}
+let bytes = enc.finish();
+let mut dec = ResidualDecoder::new(&bytes, 3990, init);
+assert_eq!(dec.decode_residual().unwrap(), 0);
+assert_eq!(dec.decode_residual().unwrap(), -5);
+assert_eq!(dec.decode_residual().unwrap(), 1234);
+assert_eq!(dec.decode_residual().unwrap(), -100_000);
+```
+
+## Per-version header/tail extraction
+
+`file_header::FileInfo::parse` walks both header eras the staged
+reference pins: the `>= 3980` descriptor + header split (alignment
+gap, forward-compat length skips, 64-bit frame-data count, MD5, seek
+table, stored WAV header blob) and the `< 3980` flat header with the
+pinned inline tail order (peak level → seek-element count → WAV blob →
+seek byte table → the `<= 3800` seek *bit* table), plus the §1.4
+blocks-per-frame derivation, the §1.6 flag-derived bits-per-sample,
+and the §1.7 derived quantities. A junk prefix (e.g. a leading ID3v2
+tag) is scanned past and recorded.
+
+## Vendor frame layer + whole-file decoder
+
+`frame` + `decoder` turn seek-table entries into decoded frames. The
+staged reference marks frame priming and per-frame state reset as GAPs,
+so this layer was established **black-box** against reference-binary
+(v13.18) encoded files and is validated bit-exact by the committed
+fixtures: the whole audio region is one bit array of 32-bit words
+loaded little-endian and consumed MSB-first; each frame starts at its
+seek offset with a CRC/flags prologue read through that array
+(`crc32(frame PCM) >> 1`, bit 31 = flags present; silence +
+pseudo-stereo bits), one structural pad byte, then the coder primes
+and decodes with per-frame per-channel `KSum = 16384` — stereo frames
+interleave the two arrays per sample with independent running states.
+
+```rust,no_run
+use oxideav_ape::decoder::{ApeDecoder, FrameDecode};
+
+let data = std::fs::read("music.ape").unwrap();
+let dec = ApeDecoder::new(&data).unwrap();
+for i in 0..dec.frame_count() {
+    match dec.decode_frame(i).unwrap() {
+        FrameDecode::Pcm(channels) => { /* exact PCM (silent frames) */ }
+        FrameDecode::Residuals(out) => { /* entropy-layer arrays; PCM awaits the predictor docs */ }
+    }
+}
+```
+
+`FrameDeltaSource` adapts a decoded frame onto the pipeline's
+`DeltaSource` boundary, so the pinned §"General Decoding Process" walk
+runs over real entropy output.
+
 ## Scalar constants + pinned closed forms
 
 The clean-room extractor staged a `scalars.csv` table of scalar
@@ -384,58 +461,55 @@ own closed form is wired.
 only the file-header parser API surface and the crate-local
 `Error` enum, with no framework dependency tree.
 
-## Out of scope (pending `spec/`)
+## Out of scope (pending further staged docs)
 
-The staged clean-room `tables/` pin the frequency model and the
-filter cascade as functional data, but the narrative `spec/` directory
-that would describe the coder's control flow has not yet been authored.
-These remain out of scope until it is:
+The predictor pass between residual arrays and PCM is the remaining
+unstaged narrative:
 
-- Per-version header-tail layout (sound parameters, frame count,
-  seek table, optional embedded WAV header) — without it no real
-  `.ape` file can be walked past offset 8.
 - The per-version `delta[]` history maintenance ("correct delta[]
   array - different for many versions"): the cascade runner injects it
   as a policy closure, but the *actual* per-version rule is unpinned.
 - Where the pinned per-stage `shift` enters the recurrence (the wiki
-  recurrence carries no shift), and the cascade's absolute stage
-  orientation.
-- Residual-coding `k`-parameter recurrence and its per-version
-  initial-state details (the model the `k` low/high split feeds and
-  the `KSum` pivot map are pinned; the recurrence that maintains
-  `KSum` / computes `k` is not).
-- Range-decoder **renormalisation / byte-input state machine** (the
-  frequency-table bounds are pinned via `freq_model`; the coder's
-  refill loop and the `range`-scaling that maps a code value to a
-  cumulative frequency are narrative the staged tables do not commit
-  to). It enters the frame pipeline as the `DeltaSource` boundary.
-- Which unpacked array is the correlation's `X` vs `Y`, and the
-  divide-vs-shift rounding (both carried as parameters).
-- `register!` framework wire-up and decoder factory (premature until
-  real-file PCM is reachable).
-
-These depend on the cleanroom `spec/` (Specifier role) being authored
-under `docs/audio/ape-cleanroom/spec/`.
+  recurrence carries no shift), the cascade's absolute stage
+  orientation, and how the stage-1 `x*31>>5` / `317`-seed predictor
+  composes with the adaptive stages.
+- The decorrelation orientation on real streams: which coded array is
+  the correlation's `X` vs `Y` (empirically the difference-type array
+  is coded first), the sign convention, and the divide-vs-shift
+  rounding (all carried as parameters).
+- 24-bit and ≥ 3-channel sample reassembly (a staged-reference GAP).
+- The old-era (`< 3980`) frame-level entropy init: the current vendor
+  encoder emits 3990-era streams only, so the `k` init cannot be
+  exercised black-box; `FRAME_K_INIT = 10` is the ladder-consistent
+  value.
+- The `cFileMD5` coverage region (a staged-reference GAP; not needed
+  for decode).
+- `register!` framework wire-up and decoder factory (lands with
+  non-silent real-file PCM).
 
 ## Clean-room wall
 
-Two clean-room sources were consulted: the workspace-local mirror at
-`docs/audio/ape/wiki/Monkeys_Audio.wiki` (a verbatim CC-BY-SA
-multimedia.cx behavioural snapshot fetched 2026-05-06), and the
-extractor's functional-data tables under
+Three clean-room sources were consulted: the staged format reference
+at `docs/audio/ape/format-reference.md` (range coder + header/tail),
+the workspace-local mirror at `docs/audio/ape/wiki/Monkeys_Audio.wiki`
+(a verbatim CC-BY-SA multimedia.cx behavioural snapshot fetched
+2026-05-06), and the extractor's functional-data tables under
 `docs/audio/ape-cleanroom/tables/` (`counts_le3980`, `counts_ge3990`,
 `freqs_le3980`, `freqs_ge3990`, `powers_of_two_minus_one`,
-`filter_config`, and `scalars`). The seven
-CSV tables this crate ships under `src/tables/` are byte-for-byte copies
-of those extractor files, loaded via `include_str!` so no numeric
-literal is retyped. The crate deliberately
-does **not** consult, quote, paraphrase, or cross-check against any
-external implementation source, any reverse-engineering writeup beyond
-the cited sources, or any other online resource.
+`filter_config`, and `scalars`). The CSV tables this crate ships under
+`src/tables/` are byte-for-byte copies of those extractor files (plus
+`ksum_min_boundary.csv`, transcribed from the staged format
+reference), loaded via `include_str!` so no numeric literal is
+retyped. The crate deliberately does **not** consult, quote,
+paraphrase, or cross-check against any external implementation source,
+any reverse-engineering writeup beyond the cited sources, or any other
+online resource.
 
-Black-box validation against the reference binary remains available as a
-future option once enough of the decoder lands to emit comparable PCM
-output.
+Black-box validation against the reference **binary** (console
+encoder v13.18, invoked as an opaque tool over engineered PCM inputs)
+established the frame-layout facts the staged reference marks as GAPs
+and produced the committed `tests/fixtures/*.ape`; the binary's source
+was never consulted.
 
 ## License
 
