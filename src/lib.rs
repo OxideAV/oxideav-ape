@@ -137,12 +137,14 @@
 pub mod cascade;
 pub mod config;
 pub mod decorrelate;
+pub mod entropy;
 pub mod error;
 pub mod filter_config;
 pub mod freq_model;
 pub mod header;
 pub mod pipeline;
 pub mod predictor;
+pub mod range_coder;
 pub mod scalars;
 
 pub use cascade::{

@@ -850,6 +850,9 @@ mod tests {
                     Err(Error::PredictorOrderMismatch { .. }) => panic!(
                         "PredictorOrderMismatch leaked out of parse() at offset {offset}; that variant belongs to the IIR-predictor step, not the binary prefix parser"
                     ),
+                    Err(Error::CorruptStream(_)) => panic!(
+                        "CorruptStream leaked out of parse() at offset {offset}; that variant belongs to the range decoder, not the binary prefix parser"
+                    ),
                 }
             }
         }

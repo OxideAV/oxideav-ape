@@ -9,6 +9,24 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `range_coder` module — the carryless byte-oriented range decoder the
+  staged format reference §2 pins (constants, §2.2 word-addressed byte
+  input, §2.3 renormalisation with the 9-bit carry window, §2.4
+  decode-culfreq / decode-and-consume / interval narrowing, and the
+  §2.6 arbitrary-radix base decode), plus a crate-derived encoder
+  mirror used to exercise the decode round-trip.
+- `entropy` module — the per-residual decode for both version paths
+  (§2.6 pivot/overflow decode for `>= 3990`, §2.7 adaptive-`k` decode
+  for `< 3990` including the 3910 wide-`k` split), the §2.8 KSum
+  recurrence and `K_SUM_MIN_BOUNDARY` adaptive-`k` ladder (staged as a
+  CSV data table), the §2.9 signed unfold, and a crate-derived encoder
+  mirror; the per-frame `k`/`KSum` reset is a staged GAP and enters as
+  an explicit `EntropyInit` parameter.
+- `Error::CorruptStream` variant for entropy-stream states a
+  well-formed stream cannot produce.
+
 ## [0.0.2](https://github.com/OxideAV/oxideav-ape/compare/v0.0.1...v0.0.2) - 2026-07-07
 
 ### Other

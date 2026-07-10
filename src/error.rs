@@ -63,6 +63,11 @@ pub enum Error {
         /// Length of the adaptive `par` coefficient vector.
         par: usize,
     },
+    /// The range-coded entropy stream drove the coder into a state a
+    /// well-formed stream cannot produce (an interval-register
+    /// underflow, a zero radix, or an out-of-range working bit count).
+    /// The payload names the primitive that tripped.
+    CorruptStream(&'static str),
 }
 
 impl core::fmt::Display for Error {
@@ -91,6 +96,9 @@ impl core::fmt::Display for Error {
                 f,
                 "oxideav-ape: IIR-predictor history/par lengths disagree on order — history={history}, par={par}"
             ),
+            Error::CorruptStream(what) => {
+                write!(f, "oxideav-ape: corrupt entropy stream — {what}")
+            }
         }
     }
 }

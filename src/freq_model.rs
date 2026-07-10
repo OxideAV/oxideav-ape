@@ -71,7 +71,7 @@ pub const FREQ_MODEL_VERSION_SPLIT: u16 = 3990;
 /// `const`-evaluated so the table arrays are baked into the binary with
 /// no runtime parse and — critically for the clean-room wall — no
 /// numeric literal retyped from the source CSV into this file.
-const fn parse_u32_col<const N: usize>(csv: &str) -> [u32; N] {
+pub(crate) const fn parse_u32_col<const N: usize>(csv: &str) -> [u32; N] {
     let bytes = csv.as_bytes();
     let mut out = [0u32; N];
     let mut i = 0usize;
