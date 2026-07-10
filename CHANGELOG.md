@@ -9,6 +9,14 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+## [0.0.3](https://github.com/OxideAV/oxideav-ape/compare/v0.0.2...v0.0.3) - 2026-07-10
+
+### Other
+
+- multi-frame geometry + allocation guard + real-file docs refresh
+- full header/tail extraction + vendor frame layer — real-file entropy decode lands
+- range decoder + residual entropy codec from the staged format reference §2
+
 ### Added
 
 - `range_coder` module — the carryless byte-oriented range decoder the
