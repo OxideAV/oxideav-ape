@@ -117,6 +117,54 @@ pub fn frame_pcm(
     }
 }
 
+/// Crate-derived encode mirror of [`frame_pcm`] for the mono and
+/// plain-stereo shapes: per-channel PCM in, coded residual arrays out
+/// (in stream order — Y then X for `>= 3950` stereo, X then Y below,
+/// per §6.1), with predictor state trajectories identical to the
+/// decode direction's. The staged reference pins only the decode
+/// direction; this inverse exists to round-trip-validate the branches
+/// no vendor fixture reaches (§6.13).
+pub fn pcm_to_coded_arrays(
+    channels: &[Vec<i32>],
+    version: u16,
+    level: CompressionLevel,
+) -> Result<Vec<Vec<i32>>> {
+    match channels {
+        [mono] => {
+            let mut x_pred = ArrayPredictor::new(version, level)?;
+            Ok(vec![mono.iter().map(|&x| x_pred.encode(x, 0)).collect()])
+        }
+        [ch0, ch1] => {
+            if ch0.len() != ch1.len() {
+                return Err(Error::Malformed("PCM channels disagree on length"));
+            }
+            let mut x_pred = ArrayPredictor::new(version, level)?;
+            let mut y_pred = ArrayPredictor::new(version, level)?;
+            let n = ch0.len();
+            let mut arr_first = Vec::with_capacity(n);
+            let mut arr_second = Vec::with_capacity(n);
+            let mut last_x = 0i32;
+            for i in 0..n {
+                // §6.9 encode direction: Y = s1 - s0; X = s0 + Y/2.
+                let y = ch1[i].wrapping_sub(ch0[i]);
+                let x = ch0[i].wrapping_add(y / 2);
+                if version >= CROSS_TERM_VERSION {
+                    arr_first.push(y_pred.encode(y, last_x));
+                    arr_second.push(x_pred.encode(x, y));
+                    last_x = x;
+                } else {
+                    arr_first.push(x_pred.encode(x, 0));
+                    arr_second.push(y_pred.encode(y, 0));
+                }
+            }
+            Ok(vec![arr_first, arr_second])
+        }
+        _ => Err(Error::Malformed(
+            "encode mirror covers mono and plain stereo only",
+        )),
+    }
+}
+
 /// Assemble per-channel PCM into the stored interleaved byte order
 /// (the byte stream the per-frame CRC covers and a WAV `data` chunk
 /// carries), per the §6.9 bit-depth table: 8-bit stores `value + 128`
@@ -242,6 +290,68 @@ mod tests {
             frame_pcm(&res, 3920, CompressionLevel::Fast, 1),
             Err(Error::NotImplemented)
         ));
+    }
+
+    /// Deterministic pseudo-noise for round-trip sweeps.
+    fn noise(seed: u64, len: usize, bound: i32) -> Vec<i32> {
+        let mut s = seed;
+        (0..len)
+            .map(|_| {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                ((s >> 33) as i32) % (2 * bound) - bound
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pcm_round_trips_through_the_encode_mirror_every_form_and_level() {
+        // Every (version-form, level) pair the staged material covers,
+        // mono and stereo, including all the branches no vendor
+        // fixture reaches: the 3930 single-arm form, the era-B delta
+        // rule (3950 with level < 5000), the level-5000 era quirk, and
+        // the multi-stage cascade orderings.
+        let versions_levels: &[(u16, &[CompressionLevel])] = &[
+            (
+                3930,
+                &[
+                    CompressionLevel::Fast,
+                    CompressionLevel::Normal,
+                    CompressionLevel::High,
+                    CompressionLevel::ExtraHigh,
+                ],
+            ),
+            (
+                3949,
+                &[CompressionLevel::Normal, CompressionLevel::ExtraHigh],
+            ),
+            (3950, &CompressionLevel::ALL[..]),
+            (3979, &CompressionLevel::ALL[..]),
+            (3990, &CompressionLevel::ALL[..]),
+        ];
+        for &(version, levels) in versions_levels {
+            for &level in levels {
+                // Mono.
+                let mono = vec![noise(version as u64, 700, 20000)];
+                let coded = pcm_to_coded_arrays(&mono, version, level).unwrap();
+                let res = residuals(coded, None);
+                let back = frame_pcm(&res, version, level, 1).unwrap();
+                assert_eq!(back, mono, "mono v{version} {level:?}");
+                // Stereo (correlated channels, so X/Y are both active).
+                let ch0 = noise(version as u64 ^ 7, 700, 20000);
+                let ch1: Vec<i32> = ch0
+                    .iter()
+                    .zip(noise(version as u64 ^ 9, 700, 3000))
+                    .map(|(&a, b)| a + b)
+                    .collect();
+                let stereo = vec![ch0, ch1];
+                let coded = pcm_to_coded_arrays(&stereo, version, level).unwrap();
+                let res = residuals(coded, None);
+                let back = frame_pcm(&res, version, level, 2).unwrap();
+                assert_eq!(back, stereo, "stereo v{version} {level:?}");
+            }
+        }
     }
 
     #[test]

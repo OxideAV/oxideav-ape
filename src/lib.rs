@@ -202,7 +202,7 @@ pub use freq_model::{
 };
 pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
 pub use nn_filter::{DeltaEra, NnFilter, DELTA_ERA_SPLIT_VERSION, NN_WINDOW};
-pub use pcm::{frame_pcm, interleave_pcm_bytes, reconstruct_sample_pair};
+pub use pcm::{frame_pcm, interleave_pcm_bytes, pcm_to_coded_arrays, reconstruct_sample_pair};
 pub use pipeline::{
     decode_frame, encode_frame, CorrelationRounding, DeltaSink, DeltaSource, FrameChannels,
 };

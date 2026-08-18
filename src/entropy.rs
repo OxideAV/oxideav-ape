@@ -322,6 +322,17 @@ impl ResidualEncoder {
         self.state = RunningState::new(init);
     }
 
+    /// Mirror of [`ResidualDecoder::running_state`] — lets a caller
+    /// interleave several logical channels over one shared coder by
+    /// swapping per-channel states in and out, exactly as the decode
+    /// side does.
+    pub fn running_state(&self) -> EntropyInit {
+        EntropyInit {
+            k: self.state.k,
+            ksum: self.state.ksum,
+        }
+    }
+
     fn encode_symbol(&mut self, sym: u32) -> Result<()> {
         let (low, width) = symbol_interval(self.counts, sym as usize)
             .ok_or(Error::CorruptStream("symbol out of model"))?;

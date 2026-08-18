@@ -236,6 +236,64 @@ impl OffsetPredictor3950 {
         self.bufs.advance();
         current
     }
+
+    /// Crate-derived encode mirror of [`Self::step`] (the staged
+    /// reference pins only the decode direction): given the target
+    /// pre-stage-1 value `current`, emit the value `v` the decode step
+    /// would need to reproduce it, holding an identical state
+    /// trajectory. Solving `current = v + P` for `v` — every other
+    /// quantity in the step is independent of `v` except the weight
+    /// update, which keys on the recovered `v`'s sign.
+    pub fn step_encode(&mut self, current: i32, cross: i32) -> i32 {
+        let c = self.bufs.cursor;
+        let [pred_a, pred_b, adapt_a, adapt_b] = &mut self.bufs.bufs;
+
+        pred_a[c] = self.last_a;
+        pred_a[c - 1] = pred_a[c].wrapping_sub(pred_a[c - 1]);
+        pred_b[c] = self.cross_filter.compress(cross);
+        pred_b[c - 1] = pred_b[c].wrapping_sub(pred_b[c - 1]);
+
+        adapt_a[c] = sign_flag(pred_a[c]);
+        adapt_a[c - 1] = sign_flag(pred_a[c - 1]);
+        adapt_b[c] = sign_flag(pred_b[c]);
+        adapt_b[c - 1] = sign_flag(pred_b[c - 1]);
+
+        let mut prediction_a = 0i32;
+        for (i, w) in self.m_a.iter().enumerate().take(4) {
+            prediction_a = prediction_a.wrapping_add(pred_a[c - i].wrapping_mul(*w));
+        }
+        let mut prediction_b = 0i32;
+        for (i, w) in self.m_b.iter().enumerate().take(5) {
+            prediction_b = prediction_b.wrapping_add(pred_b[c - i].wrapping_mul(*w));
+        }
+
+        let v = current
+            .wrapping_sub(prediction_a.wrapping_add(prediction_b >> 1) >> COMBINE_SHIFT_3950);
+
+        match v.cmp(&0) {
+            core::cmp::Ordering::Greater => {
+                for i in 0..4 {
+                    self.m_a[i] = self.m_a[i].wrapping_sub(adapt_a[c - i]);
+                }
+                for i in 0..5 {
+                    self.m_b[i] = self.m_b[i].wrapping_sub(adapt_b[c - i]);
+                }
+            }
+            core::cmp::Ordering::Less => {
+                for i in 0..4 {
+                    self.m_a[i] = self.m_a[i].wrapping_add(adapt_a[c - i]);
+                }
+                for i in 0..5 {
+                    self.m_b[i] = self.m_b[i].wrapping_add(adapt_b[c - i]);
+                }
+            }
+            core::cmp::Ordering::Equal => {}
+        }
+
+        self.last_a = current;
+        self.bufs.advance();
+        v
+    }
 }
 
 /// §6.7.2 — the 3930–3949 single-arm integer offset predictor: four
@@ -310,6 +368,48 @@ impl OffsetPredictor3930 {
         self.last_out = out;
         self.bufs.advance();
         out
+    }
+
+    /// Crate-derived encode mirror of [`Self::step`]: given the target
+    /// channel signal `out`, emit the value the decode step would need
+    /// to reproduce it, holding an identical state trajectory.
+    pub fn step_encode(&mut self, out: i32) -> i32 {
+        let c = self.bufs.cursor;
+        let hist = &mut self.bufs.bufs[0];
+
+        let p1 = hist[c - 1];
+        let p2 = hist[c - 1].wrapping_sub(hist[c - 2]);
+        let p3 = hist[c - 2].wrapping_sub(hist[c - 3]);
+        let p4 = hist[c - 3].wrapping_sub(hist[c - 4]);
+
+        let dot = p1
+            .wrapping_mul(self.m[0])
+            .wrapping_add(p2.wrapping_mul(self.m[1]))
+            .wrapping_add(p3.wrapping_mul(self.m[2]))
+            .wrapping_add(p4.wrapping_mul(self.m[3]));
+
+        // Unfold the folded order-1 stage first, then the dot term.
+        let pre_stage1 = out.wrapping_sub(self.last_out.wrapping_mul(31) >> 5);
+        let v = pre_stage1.wrapping_sub(dot >> COMBINE_SHIFT_3930);
+        hist[c] = pre_stage1;
+
+        match v.cmp(&0) {
+            core::cmp::Ordering::Greater => {
+                for (w, p) in self.m.iter_mut().zip([p1, p2, p3, p4]) {
+                    *w = w.wrapping_sub(sign_flag(p));
+                }
+            }
+            core::cmp::Ordering::Less => {
+                for (w, p) in self.m.iter_mut().zip([p1, p2, p3, p4]) {
+                    *w = w.wrapping_add(sign_flag(p));
+                }
+            }
+            core::cmp::Ordering::Equal => {}
+        }
+
+        self.last_out = out;
+        self.bufs.advance();
+        v
     }
 }
 
@@ -394,6 +494,26 @@ impl ArrayPredictor {
             }
             PredictorForm::V3930 { offset } => offset.step(v),
         }
+    }
+
+    /// Crate-derived encode mirror of [`Self::decode`]: channel signal
+    /// in, entropy residual out, with a state trajectory identical to
+    /// the decode direction's — so `decode(encode(x, c), c) == x` at
+    /// every step for any signal. The staged reference pins only the
+    /// decode direction; this inverse exists for round-trip validation
+    /// of the branches no vendor fixture can reach (§6.13).
+    pub fn encode(&mut self, signal: i32, cross: i32) -> i32 {
+        let mut v = match &mut self.form {
+            PredictorForm::V3950 { offset, output } => {
+                let current = output.compress(signal);
+                offset.step_encode(current, cross)
+            }
+            PredictorForm::V3930 { offset } => offset.step_encode(signal),
+        };
+        for f in self.nn.iter_mut().rev() {
+            v = f.encode(v);
+        }
+        v
     }
 }
 

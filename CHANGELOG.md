@@ -11,6 +11,28 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Predictor-chain encode mirrors + synthetic whole-file
+  round-trips** for the branches the staged reference marks
+  source-only / corpus-unreachable (§6.13):
+  `ArrayPredictor::encode`, `OffsetPredictor3950::step_encode`,
+  `OffsetPredictor3930::step_encode`, `pcm::pcm_to_coded_arrays`
+  (frame-level inverse incl. the §6.9 encode-direction correlation),
+  and `ResidualEncoder::running_state` (per-channel state juggling
+  mirror). A new `tests/synthetic_roundtrip.rs` suite assembles
+  complete synthetic `.ape` files — old-era flat headers and new-era
+  descriptors, §4.1 LE-word payload layout, stored per-frame CRCs —
+  and asserts byte-exact PCM recovery through
+  `ApeDecoder::decode_all_bytes` across: the 3930–3949 single-arm
+  predictor form, the era-B `delta[]` rule (3950/3970), every
+  compression level at four old-era versions, the version-3980
+  new-header + old-entropy combination, the 3990 deep cascades
+  (3000/4000/5000), the `< 3990` wide-`k` split boundary, old-era
+  multi-frame word-grid sharing, and 8-/24-bit reassembly (the
+  24-bit high-magnitude case drives the §2.6 radix-split and 32-bit
+  overflow-escape coder branches). Self-consistency only — real
+  pre-3990 conformance still needs an archived stream (staged GAP) —
+  but every source-only decode branch is now regression-locked.
+
 - **Framework registration** (`registry` feature) — the crate now
   declares itself to `oxideav-core`: `registry::register` installs
   the `"ape"` codec id with a decoder factory and the `'MAC '`
