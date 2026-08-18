@@ -438,7 +438,11 @@ fn corrupted_fixtures_never_panic() {
         data[pos] ^= 0xA5;
         if let Ok(dec) = ApeDecoder::new(&data) {
             for i in 0..dec.frame_count().min(4) {
+                // Through the full chain: entropy + predictor
+                // (decode_frame) and interleave + stored-CRC gate
+                // (decode_frame_bytes).
                 let _ = dec.decode_frame(i);
+                let _ = dec.decode_frame_bytes(i);
             }
         }
     }
@@ -447,6 +451,7 @@ fn corrupted_fixtures_never_panic() {
     let lengths = (0..192).chain((192..TWO_FRAME.len()).step_by(61));
     for len in lengths {
         if let Ok(dec) = ApeDecoder::new(&TWO_FRAME[..len]) {
+            let _ = dec.decode_all_bytes();
             for i in 0..dec.frame_count().min(4) {
                 let _ = dec.decode_frame(i);
             }
