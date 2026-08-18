@@ -47,6 +47,19 @@ impl<'a> ApeDecoder<'a> {
         Ok(ApeDecoder { data, info })
     }
 
+    /// Rebind an already-parsed [`FileInfo`] to the buffer it was
+    /// parsed from — lets a caller that keeps its own `FileInfo`
+    /// (e.g. the framework registry adapter) skip re-walking the
+    /// header/tail per frame. The buffer must be at least as long as
+    /// the one the info was parsed from; every per-frame accessor
+    /// still bounds-checks against the buffer it is handed.
+    pub fn from_parsed(data: &'a [u8], info: FileInfo) -> Result<Self> {
+        if data.len() < info.data_len() {
+            return Err(Error::Truncated);
+        }
+        Ok(ApeDecoder { data, info })
+    }
+
     /// The parsed header/tail view.
     pub fn info(&self) -> &FileInfo {
         &self.info

@@ -11,6 +11,20 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Framework registration** (`registry` feature) — the crate now
+  declares itself to `oxideav-core`: `registry::register` installs
+  the `"ape"` codec id with a decoder factory and the `'MAC '`
+  payload-magic claim, `oxideav_core::register!` exposes the canonical
+  entry point, and `make_decoder` is the direct factory alongside it.
+  `FrameworkDecoder` is the packet-facing adapter (whole-file
+  contract: Monkey's Audio is a self-contained format, so the file's
+  bytes stream in via one or more packets and one CRC-verified
+  interleaved `AudioFrame` per APE frame streams out, with
+  block-accurate `pts`). `ApeDecoder::from_parsed` rebinds an
+  already-parsed `FileInfo` so per-frame decode skips re-walking the
+  header/tail; `registry::sample_format_for` maps the §6.9 bit depths
+  onto framework sample formats.
+
 - **Whole-file PCM decode — byte-exact.** The staged format
   reference's §6 predictor chapters close the last open stage between
   residual arrays and PCM; all seven vendor-encoded fixtures now

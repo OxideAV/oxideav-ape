@@ -170,6 +170,8 @@ pub mod pipeline;
 pub mod predict;
 pub mod predictor;
 pub mod range_coder;
+#[cfg(feature = "registry")]
+pub mod registry;
 pub mod scalars;
 
 pub use cascade::{
@@ -228,18 +230,18 @@ pub fn is_ape_magic(bytes: &[u8]) -> bool {
     bytes.len() >= header::MAGIC.len() && bytes[..header::MAGIC.len()] == header::MAGIC
 }
 
-/// `oxideav-core` framework hook.
-///
-/// Phase 1 publishes only the crate name so the umbrella's
-/// `make_codec_list` audit logs a stable identifier for the
-/// scaffold. The full `register!` wire-up (decoder factory,
-/// container tag) lands once Phase 2 pins a per-version header tail
-/// and Phase 3 supplies enough of the range-decoder + IIR predictor
-/// to emit PCM samples.
+/// `oxideav-core` framework hook — the stable identifier the
+/// umbrella's `make_codec_list` audit logs. The full registration
+/// (decoder factory + `'MAC '` payload-magic claim) lives in
+/// [`registry::register`], declared to the framework via
+/// `oxideav_core::register!`.
 #[cfg(feature = "registry")]
 pub fn registry_name() -> &'static str {
     CRATE_NAME
 }
+
+#[cfg(feature = "registry")]
+pub use registry::{make_decoder, register, FrameworkDecoder, CODEC_ID};
 
 #[cfg(test)]
 mod tests {
