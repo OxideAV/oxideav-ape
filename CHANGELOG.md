@@ -11,6 +11,49 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ### Added
 
+- **Whole-file PCM decode — byte-exact.** The staged format
+  reference's §6 predictor chapters close the last open stage between
+  residual arrays and PCM; all seven vendor-encoded fixtures now
+  decode **byte-for-byte identically** to the staged reference PCM,
+  every frame's stored CRC agreeing.
+- `nn_filter` module — the §6.5 adaptive FIR stage: 16-bit weight
+  vector, 512-window rolling input/`delta[]` buffers, the 32-bit
+  wrapping dot product, the pre-output sign-sign weight update
+  (negative input adds the per-tap step), the half-LSB rounding
+  constant before the per-stage shift, the saturated `i16` history
+  narrow, and the §6.6 per-version `delta[]` maintenance rule (era A
+  `>= 3980`: magnitudes 32/16/8 gated by a truncating running average,
+  lag-{1,2,8} decays; era B `< 3980`: magnitude 4, lag-{4,8} decays),
+  plus a crate-derived encode mirror exercising exact round-trips over
+  every staged `(order, shift)` stage in both eras.
+- `predict` module — the §6.3 stage composition (FIR cascade applied
+  in reverse construction order → integer offset predictor → scaled
+  first-order stage): `OffsetPredictor3950` (§6.7.1 — two arms, 4 + 5
+  taps over first-difference history slots, weight seeds
+  `360/317/-109/98`, cross arm at half weight, fixed `>> 10`, unit-step
+  sign-sign adaptation, the compress-form first-order filter on the
+  cross term), `OffsetPredictor3930` (§6.7.2 — single arm, fixed
+  `>> 9`, order-1 stage folded in), `FirstOrderFilter` (§6.8 both
+  directions), and `ArrayPredictor` with the §6.2 version dispatch and
+  the §6.4 level-5000 filter-construction quirk.
+- `pcm` module — the §6.1 per-block frame walk (Y-then-X coded order
+  with cross terms for `>= 3950`; X-then-Y without for 3930–3949;
+  mono / pseudo-stereo / partial-silence shapes), the §6.9
+  decorrelation orientation (`s0 = X - Y/2` truncating, `s1 = s0 + Y`,
+  X = average-type / Y = difference-type), and the §6.9 per-bit-depth
+  interleaved sample reassembly (8/16/24-bit).
+- `ApeDecoder::decode_frame_pcm` / `decode_frame_bytes` (stored
+  interleaved byte order, stored-CRC-verified) /
+  `decode_all_bytes` (whole file, every frame verified);
+  `decode_frame` now returns exact PCM for every file of version 3930+
+  and falls back to residual arrays only below 3930 (the predictor
+  form §6.2 leaves unpinned).
+- Fixture suite upgraded to full byte-exactness: per-frame stored-CRC
+  verification plus whole-file CRC-32 pins against the staged
+  reference PCM for all seven fixtures, engineered-shape assertions
+  (exact silence, tone channel equality, noise bounds, the
+  single-spike frame), and a corrupted-payload CRC-rejection test.
+
 - `range_coder` module — the carryless byte-oriented range decoder the
   staged format reference §2 pins (constants, §2.2 word-addressed byte
   input, §2.3 renormalisation with the 9-bit carry window, §2.4

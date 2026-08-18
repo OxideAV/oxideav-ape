@@ -164,7 +164,10 @@ pub mod filter_config;
 pub mod frame;
 pub mod freq_model;
 pub mod header;
+pub mod nn_filter;
+pub mod pcm;
 pub mod pipeline;
+pub mod predict;
 pub mod predictor;
 pub mod range_coder;
 pub mod scalars;
@@ -196,8 +199,14 @@ pub use freq_model::{
     MODEL_ELEMENTS, POWERS_OF_TWO_MINUS_ONE, RANGE_OVERFLOW_SHIFT, RANGE_TOTAL_WIDTH,
 };
 pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
+pub use nn_filter::{DeltaEra, NnFilter, DELTA_ERA_SPLIT_VERSION, NN_WINDOW};
+pub use pcm::{frame_pcm, interleave_pcm_bytes, reconstruct_sample_pair};
 pub use pipeline::{
     decode_frame, encode_frame, CorrelationRounding, DeltaSink, DeltaSource, FrameChannels,
+};
+pub use predict::{
+    ArrayPredictor, FirstOrderFilter, OffsetPredictor3930, OffsetPredictor3950, CROSS_TERM_VERSION,
+    OFFSET_WEIGHT_SEEDS, PREDICTOR_MIN_VERSION,
 };
 pub use predictor::{
     adapt_sign, predict_dot, predict_step, predict_step_self_ref, residual_step,

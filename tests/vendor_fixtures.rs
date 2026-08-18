@@ -15,13 +15,15 @@
 //! | `left_silent_stereo.ape` | 3000 sample-frames: left silent, right ±1500 noise, level 1000 |
 //! | `two_frame_mono8k.ape` | 78728 mono 8 kHz samples (one full 73728-block silent frame, then a 5000-block final frame with a single 1234 spike at block 100), level 1000 |
 //!
-//! The anchored residual values below are regression pins: their
-//! *validity* is established by the relations the fixtures make
-//! checkable without the (still unstaged) predictor pass — exact
-//! zero runs where the source PCM is zero, first-sample residuals
-//! equal to the first PCM samples (an empty predictor history predicts
-//! zero), full-payload coder consumption, and the stored per-frame
-//! CRC matching the decoded PCM for the flag-determined silent frames.
+//! With the staged §6 predictor material the whole pipeline is
+//! validated **byte-exact**: every fixture decodes to PCM whose
+//! stored per-frame CRC matches (`crc32(frame PCM) >> 1`, a
+//! self-authenticating check the encoder carried inside the
+//! bitstream), whose whole-file CRC-32 equals the pinned value of the
+//! staged reference PCM (`docs/audio/ape/fixtures/*/expected.pcm`),
+//! and whose content has exactly the engineered source properties.
+//! The anchored residual values below remain as entropy-layer
+//! regression pins.
 
 use oxideav_ape::decoder::{ApeDecoder, FrameDecode};
 use oxideav_ape::file_header::FormatFlags;
@@ -309,6 +311,117 @@ fn consumed_full_payload(out: &oxideav_ape::frame::FrameResiduals, frame_len: us
 #[test]
 fn crc32_reference_vector_holds() {
     assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+}
+
+/// Every fixture decodes to byte-exact PCM: `decode_all_bytes`
+/// CRC-verifies each frame against its stored checksum, and the
+/// whole-file CRC-32 below is pinned to the staged reference PCM
+/// (`docs/audio/ape/fixtures/<name>/expected.pcm`).
+#[test]
+fn every_fixture_decodes_to_byte_exact_pcm() {
+    for (name, data, len, whole_crc) in [
+        (
+            "left_silent_stereo",
+            LEFT_SILENT,
+            12000usize,
+            0xE274_2521u32,
+        ),
+        ("noise_stereo", NOISE_STEREO, 24000, 0xE59D_2740),
+        ("silence_mono8k", SILENCE_MONO8K, 3200, 0xCB7B_98A6),
+        ("silence_stereo", SILENCE_STEREO, 88200, 0x586E_6D77),
+        ("tone_lr_equal", TONE_LR_EQUAL, 52920, 0xC8C3_7837),
+        ("two_frame_mono8k", TWO_FRAME, 157456, 0xF38E_6764),
+        (
+            "zeros_then_noise_mono",
+            ZEROS_THEN_NOISE,
+            16000,
+            0xE208_569B,
+        ),
+    ] {
+        let dec = ApeDecoder::new(data).unwrap();
+        let pcm = dec
+            .decode_all_bytes()
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(pcm.len(), len, "{name}: PCM byte length");
+        assert_eq!(crc32(&pcm), whole_crc, "{name}: whole-file PCM CRC-32");
+    }
+}
+
+#[test]
+fn decoded_pcm_reproduces_the_engineered_source_shapes() {
+    // tone_lr_equal: a pseudo-stereo frame — both output channels are
+    // the identical 440 Hz sine.
+    let dec = ApeDecoder::new(TONE_LR_EQUAL).unwrap();
+    let pcm = dec.decode_frame_pcm(0).unwrap();
+    assert_eq!(pcm.len(), 2);
+    assert_eq!(pcm[0], pcm[1], "pseudo-stereo channels are identical");
+    assert_eq!(pcm[0][0], 0, "sine starts at zero");
+    assert!(pcm[0].iter().all(|&v| (-20000..=20000).contains(&v)));
+
+    // left_silent_stereo: stored channel 0 is exactly silent, channel
+    // 1 is the engineered ±1500 noise.
+    let dec = ApeDecoder::new(LEFT_SILENT).unwrap();
+    let pcm = dec.decode_frame_pcm(0).unwrap();
+    assert!(pcm[0].iter().all(|&v| v == 0), "channel 0 is exact silence");
+    assert!(pcm[1].iter().any(|&v| v != 0));
+    assert!(pcm[1].iter().all(|&v| (-1500..=1500).contains(&v)));
+
+    // noise_stereo: both channels bounded at the engineered ±3000.
+    let dec = ApeDecoder::new(NOISE_STEREO).unwrap();
+    let pcm = dec.decode_frame_pcm(0).unwrap();
+    for ch in &pcm {
+        assert!(ch.iter().all(|&v| (-3000..=3000).contains(&v)));
+    }
+
+    // zeros_then_noise_mono: 4000 exact zeros then ±2000 noise.
+    let dec = ApeDecoder::new(ZEROS_THEN_NOISE).unwrap();
+    let pcm = dec.decode_frame_pcm(0).unwrap();
+    assert!(pcm[0][..4000].iter().all(|&v| v == 0));
+    assert!(pcm[0][4000..].iter().any(|&v| v != 0));
+    assert!(pcm[0][4000..].iter().all(|&v| (-2000..=2000).contains(&v)));
+
+    // two_frame_mono8k, frame 1: a single 1234 spike at block 100.
+    let dec = ApeDecoder::new(TWO_FRAME).unwrap();
+    let pcm = dec.decode_frame_pcm(1).unwrap();
+    let expected: Vec<i32> = (0..5000).map(|i| if i == 100 { 1234 } else { 0 }).collect();
+    assert_eq!(pcm[0], expected, "the spike frame is exact");
+}
+
+#[test]
+fn decode_frame_returns_pcm_for_every_fixture_frame() {
+    for data in [
+        SILENCE_STEREO,
+        SILENCE_MONO8K,
+        TONE_LR_EQUAL,
+        ZEROS_THEN_NOISE,
+        NOISE_STEREO,
+        LEFT_SILENT,
+        TWO_FRAME,
+    ] {
+        let dec = ApeDecoder::new(data).unwrap();
+        for i in 0..dec.frame_count() {
+            match dec.decode_frame(i).unwrap() {
+                FrameDecode::Pcm(_) => {}
+                other => panic!("3990-era frame must decode to PCM, got {other:?}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn frame_byte_decode_rejects_a_crc_mismatch() {
+    // Flip one payload byte deep inside the noise fixture: either the
+    // parse/entropy layer errors out, or the decoded PCM must fail the
+    // stored-CRC check — silent acceptance is the one wrong answer.
+    let mut data = NOISE_STEREO.to_vec();
+    let n = data.len();
+    data[n - 40] ^= 0x10;
+    if let Ok(dec) = ApeDecoder::new(&data) {
+        assert!(
+            dec.decode_frame_bytes(0).is_err(),
+            "corrupted payload must not pass CRC verification"
+        );
+    }
 }
 
 #[test]

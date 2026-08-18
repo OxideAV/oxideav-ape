@@ -1,34 +1,34 @@
 //! Whole-file decoder facade: header/tail parse
 //! ([`crate::file_header`]) plus seek-table frame slicing plus the
-//! vendor frame entropy layer ([`crate::frame`]), wired behind the
-//! General-Decoding-Process boundary the [`crate::pipeline`] module
-//! pins.
+//! vendor frame entropy layer ([`crate::frame`]) plus the staged §6
+//! predictor chain ([`crate::predict`] via [`crate::pcm`]).
 //!
-//! The entropy layer is complete and validated bit-exact against
-//! vendor-encoded fixtures; the passes between residual arrays and PCM
-//! — the adaptive predictor cascade's per-version `delta[]`
-//! maintenance, the per-stage `shift` position, and the X/Y
-//! decorrelation orientation — remain pending further staged docs.
-//! [`ApeDecoder::decode_frame`] therefore returns either **exact PCM**
-//! (frames the flags fully determine: all-silent frames) or the coded
-//! **residual arrays** (everything else), and never guesses at the
-//! unpinned passes.
+//! With the format reference's §6 staging the pipeline is complete for
+//! files of version 3930 and above: [`ApeDecoder::decode_frame`]
+//! returns the frame's **exact PCM** (validated byte-exact against the
+//! vendor-encoded fixture corpus, each frame's stored CRC agreeing),
+//! [`ApeDecoder::decode_frame_bytes`] additionally assembles the
+//! stored interleaved byte order and **verifies the stored CRC**, and
+//! [`ApeDecoder::decode_all_bytes`] walks every frame into one PCM
+//! byte stream. Files below version 3930 sit outside the staged
+//! predictor material (§6.2); for those `decode_frame` still returns
+//! the entropy layer's residual arrays rather than guessing.
 
 use crate::error::{Error, Result};
 use crate::file_header::FileInfo;
 use crate::frame::{decode_frame_residuals, FrameResiduals};
+use crate::pcm::{frame_pcm, interleave_pcm_bytes};
 use crate::pipeline::DeltaSource;
 
 /// One frame's decode outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FrameDecode {
-    /// The frame's exact PCM, one array per channel — produced when
-    /// the entropy layer alone fully determines it (all-silent
-    /// frames).
+    /// The frame's exact PCM, one array per channel.
     Pcm(Vec<Vec<i32>>),
     /// The entropy-layer residual arrays (one per **coded** array; a
-    /// pseudo-stereo frame codes a single shared array). Turning these
-    /// into PCM awaits the staged predictor material.
+    /// pseudo-stereo frame codes a single shared array) — returned
+    /// only for pre-3930 files, whose predictor pass is outside the
+    /// staged material (§6.2).
     Residuals(FrameResiduals),
 }
 
@@ -95,17 +95,77 @@ impl<'a> ApeDecoder<'a> {
     }
 
     /// Decode frame `index` as far as the staged material allows:
-    /// exact PCM for flag-determined frames, residual arrays
-    /// otherwise.
+    /// exact PCM for every file of version 3930 or above (and for
+    /// flag-determined all-silent frames of any version), residual
+    /// arrays for pre-3930 files whose predictor form is outside the
+    /// staged material (§6.2).
     pub fn decode_frame(&self, index: u32) -> Result<FrameDecode> {
         let out = self.frame_residuals(index)?;
         if out.silent {
             // All-silent: the residual arrays are the PCM (zeros), one
-            // per channel, and the stored CRC can be checked now.
-            Ok(FrameDecode::Pcm(out.arrays))
-        } else {
-            Ok(FrameDecode::Residuals(out))
+            // per channel.
+            return Ok(FrameDecode::Pcm(out.arrays));
         }
+        match frame_pcm(
+            &out,
+            self.info.version,
+            self.info.compression_level,
+            self.info.channels,
+        ) {
+            Ok(pcm) => Ok(FrameDecode::Pcm(pcm)),
+            Err(Error::NotImplemented) => Ok(FrameDecode::Residuals(out)),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Decode frame `index` to per-channel PCM samples. Unlike
+    /// [`Self::decode_frame`] this never falls back to residual
+    /// arrays: a pre-3930 file surfaces [`Error::NotImplemented`].
+    pub fn decode_frame_pcm(&self, index: u32) -> Result<Vec<Vec<i32>>> {
+        let out = self.frame_residuals(index)?;
+        if out.silent {
+            return Ok(out.arrays);
+        }
+        frame_pcm(
+            &out,
+            self.info.version,
+            self.info.compression_level,
+            self.info.channels,
+        )
+    }
+
+    /// Decode frame `index` into the stored interleaved PCM byte order
+    /// (the §6.9 per-bit-depth layout — what a WAV `data` chunk
+    /// carries) and verify it against the frame's stored CRC.
+    pub fn decode_frame_bytes(&self, index: u32) -> Result<Vec<u8>> {
+        let out = self.frame_residuals(index)?;
+        let pcm = if out.silent {
+            out.arrays.clone()
+        } else {
+            frame_pcm(
+                &out,
+                self.info.version,
+                self.info.compression_level,
+                self.info.channels,
+            )?
+        };
+        let bytes = interleave_pcm_bytes(&pcm, self.info.bits_per_sample)?;
+        if !out.prologue.matches_pcm_crc(&bytes) {
+            return Err(Error::Malformed(
+                "stored frame CRC disagrees with the decoded PCM",
+            ));
+        }
+        Ok(bytes)
+    }
+
+    /// Decode the whole file into one interleaved PCM byte stream,
+    /// every frame CRC-verified.
+    pub fn decode_all_bytes(&self) -> Result<Vec<u8>> {
+        let mut out = Vec::new();
+        for i in 0..self.frame_count() {
+            out.extend_from_slice(&self.decode_frame_bytes(i)?);
+        }
+        Ok(out)
     }
 
     /// Verify frame `index`'s stored checksum against caller-supplied
