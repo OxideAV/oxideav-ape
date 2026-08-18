@@ -8,18 +8,30 @@ reference binary at <http://www.monkeysaudio.com/>. Monkey's Audio
 pairs channel decorrelation, a cascade of IIR predictors, and a
 range-coded residual into a lossless integer-PCM round-trip.
 
-The crate ships every layer the staged clean-room docs pin — and, as
-of the `format-reference.md` staging, that now includes the **complete
-range decoder** (both version paths), the **full per-version
-header/tail extraction** for both file eras, and a **vendor frame
-layer validated bit-exact against reference-binary-encoded files**:
-real `.ape` files parse end-to-end and their residual arrays decode
-with full-payload coder consumption, verified per-frame CRCs, and
-exact PCM for flag-determined silent frames. What still separates
-residual arrays from PCM on non-silent frames is the adaptive
-predictor pass (per-version `delta[]` maintenance, per-stage `shift`
-position, decorrelation orientation) — narrative the staged docs do
-not yet pin (see "Out of scope").
+**The crate is a complete decoder for files of version 3.93 and
+above.** With the format reference's §6 staging (predictor cascade,
+`delta[]` maintenance, per-frame entropy state) every stage between
+the range-coded bitstream and PCM is pinned and implemented: the
+complete range decoder (both version paths), the full per-version
+header/tail extraction (both file eras), the vendor frame layer, the
+adaptive predictor chain, channel decorrelation, and 8/16/24-bit
+sample reassembly. All seven vendor-encoded fixtures decode
+**byte-for-byte identically** to the staged reference PCM, with every
+frame's stored CRC agreeing; the branches no vendor fixture can reach
+(pre-3990 entropy, the era-B `delta[]` rule, the 3930-era predictor
+form, deep cascades, 8/24-bit) are regression-locked by synthetic
+whole-file round-trips. The crate registers with the `oxideav-core`
+framework (codec id `ape`, `'MAC '` payload-magic claim).
+
+```rust,no_run
+use oxideav_ape::ApeDecoder;
+
+let data = std::fs::read("music.ape").unwrap();
+let dec = ApeDecoder::new(&data).unwrap();
+// Whole file -> interleaved little-endian PCM, every frame verified
+// against its stored CRC.
+let pcm = dec.decode_all_bytes().unwrap();
+```
 
 **Phase 1** lands the 8-byte file-header prefix the staged docs at
 `docs/audio/ape/wiki/Monkeys_Audio.wiki` pin:
@@ -167,12 +179,13 @@ statement order. A history/coefficient order disagreement surfaces
 `Error::PredictorOrderMismatch`.
 
 The wiki's trailing "correct delta[] array - different for many
-versions" line is the one part of the recurrence the staged docs
-explicitly decline to pin, so the step leaves the `delta[]` history
-window to the caller. The residual range decoder, the `k`-parameter
-recurrence, the per-version filter orders / coefficient tables, and the
-cascade wiring that chains 1-3 filters remain Phase 2+ inputs (the wiki
-sketches them but pins no constants).
+versions" line is the one part of the recurrence the wiki declines to
+pin, so this step primitive leaves the `delta[]` history window to
+the caller. The format reference's §6 has since pinned the actual
+per-version rule and the full stage composition — the concrete
+implementation lives in the `nn_filter` / `predict` / `pcm` modules
+(see "Predictor chain" below); this wiki-level primitive remains as
+the documented closed form it transcribes.
 
 ## Range-coder residual frequency model
 
@@ -216,10 +229,11 @@ two tables independently lets a unit test **assert they agree**
 version variants), a provenance cross-check the derived widths could
 not provide.
 
-The range decoder's renormalisation /
-byte-input **state machine** is *not* pinned by the staged tables and
-the cleanroom `spec/` narrative has not yet been authored, so it is
-deliberately left to a later phase rather than guessed.
+The range decoder's renormalisation / byte-input **state machine** is
+not pinned by these tables alone — it is pinned by the staged format
+reference §2 and implemented in the `range_coder` / `entropy` modules
+(see "Range decoder + residual entropy codec" below); the tables here
+are the frequency model those modules decode against.
 
 ## Adaptive-filter cascade configuration
 
@@ -397,15 +411,68 @@ let data = std::fs::read("music.ape").unwrap();
 let dec = ApeDecoder::new(&data).unwrap();
 for i in 0..dec.frame_count() {
     match dec.decode_frame(i).unwrap() {
-        FrameDecode::Pcm(channels) => { /* exact PCM (silent frames) */ }
-        FrameDecode::Residuals(out) => { /* entropy-layer arrays; PCM awaits the predictor docs */ }
+        FrameDecode::Pcm(channels) => { /* exact PCM, one array per channel */ }
+        FrameDecode::Residuals(out) => { /* pre-3930 files only (§6.2 unpinned) */ }
     }
 }
+// Or per frame with CRC verification / whole-file:
+let frame0 = dec.decode_frame_bytes(0).unwrap();
+let whole = dec.decode_all_bytes().unwrap();
 ```
 
 `FrameDeltaSource` adapts a decoded frame onto the pipeline's
 `DeltaSource` boundary, so the pinned §"General Decoding Process" walk
 runs over real entropy output.
+
+## Predictor chain (format reference §6)
+
+The staged §6 chapters pin the complete pass between entropy output
+and PCM, and three modules implement it:
+
+- **`nn_filter`** — the §6.5 adaptive FIR stage: 16-bit weight vector
+  and rolling input/`delta[]` buffers (window 512 + order), the
+  32-bit wrapping dot product, the pre-output sign-sign weight update
+  (a negative input **adds** the per-tap step), the half-LSB rounding
+  constant before the per-stage shift (the only rounding constant in
+  the chain), the saturated `i16` history narrow, and the §6.6
+  per-version `delta[]` rule — era A (`>= 3980`): magnitudes 32/16/8
+  gated by a truncating running average with lag-{1,2,8} decays;
+  era B (`< 3980`): magnitude 4 with lag-{4,8} decays.
+- **`predict`** — the §6.3 composition (FIR stages applied in
+  **reverse construction order**, then the integer offset predictor,
+  then the scaled first-order stage): `OffsetPredictor3950` (§6.7.1 —
+  4-tap own-history arm seeded `360/317/-109/98` plus a 5-tap
+  cross-channel arm entering at half weight, fixed `>> 10`, unit-step
+  sign-sign adaptation), `OffsetPredictor3930` (§6.7.2 — one arm,
+  fixed `>> 9`, order-1 stage folded in), `FirstOrderFilter` (§6.8
+  `state = v + ((state * 31) >> 5)`), and `ArrayPredictor` carrying
+  the §6.2 version dispatch plus the §6.4 level-5000 quirk (insane
+  files construct their filters with the fixed version 3990, so a
+  3950–3979 level-5000 stream still runs the era-A rule).
+- **`pcm`** — the §6.1 per-block walk (a `>= 3950` stereo frame codes
+  Y first with the previous block's X as its cross term, then X with
+  this block's Y; 3930–3949 codes X first with no cross term), the
+  §6.9 decorrelation orientation (`s0 = X - Y/2` with **truncating**
+  division, `s1 = s0 + Y`; X is the average-type array), and the
+  §6.9 per-bit-depth reassembly (8-bit stores `value + 128`, 16-bit
+  LE `i16`, 24-bit three LE bytes).
+
+Every stage also ships a crate-derived encode mirror
+(`ArrayPredictor::encode`, `pcm_to_coded_arrays`, the `NnFilter` /
+offset-predictor `*_encode` steps) holding state trajectories
+identical to the decode direction — these exist to round-trip-validate
+the branches no vendor fixture reaches and are exercised by
+whole-file synthetic streams in `tests/synthetic_roundtrip.rs`.
+
+## Framework registration
+
+With the `registry` feature (default on) the crate declares itself to
+`oxideav-core`: codec id **`ape`**, a decoder factory
+(`make_decoder`), and the `'MAC '` payload-magic claim.
+`FrameworkDecoder` is the packet-facing adapter — Monkey's Audio is a
+self-contained file format, so the whole file's bytes stream in via
+one or more packets and one CRC-verified interleaved `AudioFrame` per
+APE frame streams out, with block-accurate `pts`.
 
 ## Scalar constants + pinned closed forms
 
@@ -461,37 +528,34 @@ own closed form is wired.
 only the file-header parser API surface and the crate-local
 `Error` enum, with no framework dependency tree.
 
-## Out of scope (pending further staged docs)
+## Out of scope (per the staged GAP list)
 
-The predictor pass between residual arrays and PCM is the remaining
-unstaged narrative:
-
-- The per-version `delta[]` history maintenance ("correct delta[]
-  array - different for many versions"): the cascade runner injects it
-  as a policy closure, but the *actual* per-version rule is unpinned.
-- Where the pinned per-stage `shift` enters the recurrence (the wiki
-  recurrence carries no shift), the cascade's absolute stage
-  orientation, and how the stage-1 `x*31>>5` / `317`-seed predictor
-  composes with the adaptive stages.
-- The decorrelation orientation on real streams: which coded array is
-  the correlation's `X` vs `Y` (empirically the difference-type array
-  is coded first), the sign convention, and the divide-vs-shift
-  rounding (all carried as parameters).
-- 24-bit and ≥ 3-channel sample reassembly (a staged-reference GAP).
-- The old-era (`< 3980`) frame-level entropy init: the current vendor
-  encoder emits 3990-era streams only, so the `k` init cannot be
-  exercised black-box; `FRAME_K_INIT = 10` is the ladder-consistent
-  value.
-- The `cFileMD5` coverage region (a staged-reference GAP; not needed
-  for decode).
-- `register!` framework wire-up and decoder factory (lands with
-  non-silent real-file PCM).
+- **Files below version 3.93** (§6.2): the staged-era decoder rejects
+  them outright and the legacy classes are absent from the extraction
+  source; `decode_frame` returns the entropy layer's residual arrays
+  for such files instead of guessing.
+- **Pre-3990 conformance against real archives**: the `< 3990`
+  entropy path, the era-B `delta[]` rule, and the 3930-era predictor
+  are staged source-extracted fact and regression-locked by synthetic
+  round-trips, but the vendor encoder emits 3990 streams only, so no
+  genuine archived pre-3990 stream has confirmed them black-box
+  (staged GAP — needs an archive staged as a file).
+- **≥ 3-channel** sample reassembly (staged GAP; the snapshot's
+  multichannel wrapper is dead code describing no shipping stream).
+- **Old-file seek-bit-table semantics** (`<= 3800`, staged GAP).
+- The **terminating-blob position inside `cFileMD5`** (staged GAP; not
+  needed for decode — the digest is stored, not verified, on parse).
+- A **production encoder**: the shipped encode mirrors are
+  round-trip-validation grade (they emit valid streams the decoder
+  reproduces byte-exact, but no rate/quality tuning is claimed).
 
 ## Clean-room wall
 
 Three clean-room sources were consulted: the staged format reference
-at `docs/audio/ape/format-reference.md` (range coder + header/tail),
-the workspace-local mirror at `docs/audio/ape/wiki/Monkeys_Audio.wiki`
+at `docs/audio/ape/format-reference.md` (range coder + header/tail +
+the §6 predictor/`delta[]`/entropy-state chapters, with provenance
+under `docs/audio/ape/provenance/`), the workspace-local mirror at
+`docs/audio/ape/wiki/Monkeys_Audio.wiki`
 (a verbatim CC-BY-SA multimedia.cx behavioural snapshot fetched
 2026-05-06), and the extractor's functional-data tables under
 `docs/audio/ape-cleanroom/tables/` (`counts_le3980`, `counts_ge3990`,
@@ -499,8 +563,10 @@ the workspace-local mirror at `docs/audio/ape/wiki/Monkeys_Audio.wiki`
 `filter_config`, and `scalars`). The CSV tables this crate ships under
 `src/tables/` are byte-for-byte copies of those extractor files (plus
 `ksum_min_boundary.csv`, transcribed from the staged format
-reference), loaded via `include_str!` so no numeric literal is
-retyped. The crate deliberately does **not** consult, quote,
+reference); the §6 constants (range-coder registers, predictor weight
+seeds, delta magnitudes, shifts) are transcribed from the format
+reference with section citations at every use site. The crate
+deliberately does **not** consult, quote,
 paraphrase, or cross-check against any external implementation source,
 any reverse-engineering writeup beyond the cited sources, or any other
 online resource.

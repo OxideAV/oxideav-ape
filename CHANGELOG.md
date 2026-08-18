@@ -9,6 +9,16 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation refresh to decoder-complete status: README rewritten
+  (whole-file quick example, "Predictor chain (§6)" and "Framework
+  registration" sections, GAP-list-aligned out-of-scope, clean-room
+  wall updated for the §6 staging), lib-level phase narrative brought
+  current, stale "awaits the predictor docs" notes in the frame /
+  freq-model / wiki-predictor sections corrected, crate `description`
+  updated. No code changes.
+
 ### Added
 
 - **Predictor-chain encode mirrors + synthetic whole-file

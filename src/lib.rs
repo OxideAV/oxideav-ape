@@ -1,14 +1,18 @@
 //! # oxideav-ape
 //!
-//! **Status:** clean-room build-out — every layer the staged docs pin
-//! is implemented, including (since the `format-reference.md` staging)
-//! the complete range decoder, the full per-version header/tail
-//! extraction, and a vendor frame layer validated **bit-exact against
-//! reference-binary-encoded files**. Real `.ape` files parse and their
-//! residual arrays decode with full-payload coder consumption; silent
-//! frames decode to exact PCM with verified CRCs. Non-silent PCM
-//! awaits the predictor narrative (per-version `delta[]` rule, `shift`
-//! position, decorrelation orientation).
+//! **Status: complete clean-room decoder for files of version 3.93
+//! and above.** Every stage between the range-coded bitstream and PCM
+//! is pinned by the staged docs and implemented: range decoder (both
+//! version paths), per-version header/tail extraction (both eras),
+//! the vendor frame layer, the §6 adaptive predictor chain
+//! ([`nn_filter`] + [`predict`]), channel decorrelation, and
+//! 8/16/24-bit sample reassembly ([`pcm`]). All seven vendor-encoded
+//! fixtures decode **byte-for-byte identically** to the staged
+//! reference PCM with every stored per-frame CRC agreeing; the
+//! branches no vendor fixture reaches are regression-locked by
+//! synthetic whole-file round-trips. The `registry` feature wires the
+//! crate into the `oxideav-core` framework (codec id `ape`, `'MAC '`
+//! payload-magic claim, whole-file packet contract).
 //!
 //! Pure-Rust scaffold for **Monkey's Audio** (`.ape`), the lossless
 //! audio codec authored by Matthew T. Ashland and distributed as the
@@ -107,12 +111,20 @@
 //! [`decoder::FrameDeltaSource`] wiring the entropy layer behind the
 //! [`pipeline::DeltaSource`] boundary).
 //!
-//! Still out of scope: the predictor pass between residual arrays and
-//! PCM — the per-version `delta[]` history maintenance, the per-stage
-//! `shift` position, the stage-1/adaptive composition, and the
-//! decorrelation orientation on real streams — plus 24-bit / ≥ 3
-//! channel reassembly and the old-era frame `k` init (unexercisable
-//! black-box: the current vendor encoder emits 3990-era streams only).
+//! Phase 5 closes the arc with the staged format reference's §6: the
+//! adaptive FIR stage with the per-version `delta[]` rule
+//! ([`nn_filter`]), the integer offset predictors + scaled
+//! first-order stage with the §6.2 version dispatch ([`predict`]),
+//! the §6.1/§6.9 frame walk, decorrelation orientation, and sample
+//! reassembly ([`pcm`]), the PCM-emitting decoder facade
+//! ([`decoder::ApeDecoder::decode_all_bytes`]), and the framework
+//! registration ([`registry`]).
+//!
+//! Still out of scope (staged GAP list): files below version 3.93
+//! (rejected by the staged-era decoder; residual arrays are returned
+//! instead), black-box confirmation of the pre-3990 branches against
+//! genuine archived streams (synthetic round-trips lock them
+//! self-consistently), and ≥ 3-channel reassembly.
 //!
 //! ## Allowed reference material (clean-room wall)
 //!

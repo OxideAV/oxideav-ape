@@ -46,10 +46,12 @@
 //!    second array" listing describes the logical result, not the
 //!    physical symbol order.)
 //!
-//! What the arrays *are* (the decorrelated X/Y pair) and how they
-//! become PCM (predictor cascade + channel correlation) stays with the
-//! staged predictor docs; this module stops at residual arrays, plus
-//! exact PCM for the silence cases the flags fully determine.
+//! What the arrays *are* (the decorrelated Y/X pair, difference-type
+//! first for `>= 3950` — §6.1/§6.9) and how they become PCM (the §6
+//! predictor chain + channel correlation) is implemented by
+//! [`crate::predict`] and [`crate::pcm`]; this module stops at
+//! residual arrays, plus exact PCM for the silence cases the flags
+//! fully determine.
 
 use crate::entropy::{EntropyInit, ResidualDecoder};
 use crate::error::{Error, Result};
