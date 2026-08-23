@@ -9,6 +9,14 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Re-export the framework dispatch entry (`__oxideav_entry`) at the
+  crate root (`#[doc(hidden)]`). The registration macro expands inside
+  the `registry` module, but the aggregator's `register_all` contract
+  calls the entry at the crate root — without the re-export, enabling
+  this crate through the aggregator failed to compile.
+
 ### Changed
 
 - Documentation refresh to decoder-complete status: README rewritten

@@ -255,6 +255,14 @@ pub fn registry_name() -> &'static str {
 #[cfg(feature = "registry")]
 pub use registry::{make_decoder, register, FrameworkDecoder, CODEC_ID};
 
+/// Crate-root re-export of the `oxideav_core::register!`-generated
+/// dispatch entry. The macro expands inside [`registry`], but the
+/// framework's `register_all` contract calls
+/// `oxideav_ape::__oxideav_entry(ctx)` at the crate root.
+#[cfg(feature = "registry")]
+#[doc(hidden)]
+pub use registry::__oxideav_entry;
+
 #[cfg(test)]
 mod tests {
     use super::*;
