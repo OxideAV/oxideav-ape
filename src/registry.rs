@@ -1,6 +1,7 @@
 //! `oxideav-core` framework wire-up (behind the default-on `registry`
 //! cargo feature): the codec registration, the packet-facing decoder
-//! adapter, and the direct `make_decoder` factory.
+//! and encoder adapters, and the direct `make_decoder` /
+//! `make_encoder` factories (the dual-API convention).
 //!
 //! Monkey's Audio is a self-contained file format — the `.ape` file
 //! carries its own descriptor, header, seek table, and frame payload —
@@ -17,14 +18,26 @@
 //! `U8` for 8-bit files (stored biased by +128), `S16` for 16-bit,
 //! `S24` for 24-bit — with every frame verified against its stored
 //! CRC before it is handed out.
+//!
+//! The **encoder** adapter mirrors the same whole-file contract in the
+//! other direction: feed interleaved-PCM [`AudioFrame`]s (any
+//! chunking), then [`Encoder::flush`]; the single output
+//! [`oxideav_core::Packet`] is the complete `.ape` file (the container
+//! stores the frame count, seek table, and `cFileMD5` up front, so the
+//! file can only be finalised once the input ends). The
+//! `compression_level` option selects the profile (label or raw code);
+//! `blocks_per_frame` tunes the frame size.
 
 use crate::decoder::ApeDecoder;
+use crate::encoder::{ApeEncoder, EncoderConfig, DEFAULT_BLOCKS_PER_FRAME};
 use crate::error::Error as ApeError;
 use crate::file_header::FileInfo;
+use crate::header::CompressionLevel;
 use oxideav_core::registry::CodecInfo;
 use oxideav_core::{
-    AudioFrame, CodecCapabilities, CodecId, CodecParameters, Decoder, Error as CoreError, Frame,
-    Packet, Result as CoreResult, RuntimeContext, SampleFormat,
+    parse_options, AudioFrame, CodecCapabilities, CodecId, CodecOptionsStruct, CodecParameters,
+    Decoder, Encoder, Error as CoreError, Frame, OptionField, OptionKind, OptionValue, Packet,
+    Result as CoreResult, RuntimeContext, SampleFormat, TimeBase,
 };
 
 /// The registry codec id this crate claims.
@@ -155,10 +168,189 @@ pub fn make_decoder(_params: &CodecParameters) -> CoreResult<Box<dyn Decoder>> {
     Ok(Box::new(FrameworkDecoder::new()))
 }
 
+/// The inverse of [`sample_format_for`]: the bit depth a framework
+/// sample format stores as (§6.9 table).
+pub fn bits_for_sample_format(format: SampleFormat) -> Option<u16> {
+    match format {
+        SampleFormat::U8 => Some(8),
+        SampleFormat::S16 => Some(16),
+        SampleFormat::S24 => Some(24),
+        _ => None,
+    }
+}
+
+/// Typed encoder options (the `CodecParameters::options` schema).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApeEncoderOptions {
+    /// Compression profile. Accepts the narrative label (`"fast"`,
+    /// `"normal"`, `"high"`, `"extra high"` / `"extra_high"`,
+    /// `"insane"`) or the raw on-wire code (`1000`..`5000`).
+    pub compression_level: CompressionLevel,
+    /// Audio blocks per APE frame.
+    pub blocks_per_frame: u32,
+}
+
+impl Default for ApeEncoderOptions {
+    fn default() -> Self {
+        ApeEncoderOptions {
+            compression_level: CompressionLevel::default(),
+            blocks_per_frame: DEFAULT_BLOCKS_PER_FRAME,
+        }
+    }
+}
+
+/// Parse a compression-level option value: narrative label (with `_`
+/// accepted for the space in "extra high") or raw decimal code.
+fn parse_level(raw: &str) -> CoreResult<CompressionLevel> {
+    if let Ok(code) = raw.trim().parse::<u16>() {
+        return CompressionLevel::from_u16(code).map_err(|e| CoreError::invalid(e.to_string()));
+    }
+    raw.replace('_', " ")
+        .parse::<CompressionLevel>()
+        .map_err(|e| CoreError::invalid(e.to_string()))
+}
+
+impl CodecOptionsStruct for ApeEncoderOptions {
+    const SCHEMA: &'static [OptionField] = &[
+        OptionField {
+            name: "compression_level",
+            kind: OptionKind::String,
+            default: OptionValue::String(String::new()), // "normal"
+            help: "compression profile: fast | normal | high | extra_high | insane, or the raw 1000..5000 code",
+        },
+        OptionField {
+            name: "blocks_per_frame",
+            kind: OptionKind::U32,
+            default: OptionValue::U32(DEFAULT_BLOCKS_PER_FRAME),
+            help: "audio blocks per APE frame (default 73728, the reference encoder's value)",
+        },
+    ];
+
+    fn apply(&mut self, key: &str, value: &OptionValue) -> CoreResult<()> {
+        match key {
+            "compression_level" => self.compression_level = parse_level(value.as_str()?)?,
+            "blocks_per_frame" => self.blocks_per_frame = value.as_u32()?,
+            _ => unreachable!("guarded by SCHEMA"),
+        }
+        Ok(())
+    }
+}
+
+/// Whole-file packet-facing adapter over [`ApeEncoder`]: PCM frames
+/// in, one packet holding the complete `.ape` file out after `flush`.
+pub struct FrameworkEncoder {
+    codec_id: CodecId,
+    output_params: CodecParameters,
+    enc: Option<ApeEncoder>,
+    samples_in: u64,
+    sample_rate: u32,
+    finished: Option<Vec<u8>>,
+    flushed: bool,
+}
+
+impl FrameworkEncoder {
+    /// Build an encoder from stream parameters: `sample_rate` and
+    /// `channels` are required; `sample_format` defaults to `S16`;
+    /// `options` may carry the [`ApeEncoderOptions`] keys.
+    pub fn from_params(params: &CodecParameters) -> CoreResult<Self> {
+        let sample_rate = params
+            .sample_rate
+            .ok_or_else(|| CoreError::invalid("ape encoder needs sample_rate"))?;
+        let channels = params
+            .channels
+            .ok_or_else(|| CoreError::invalid("ape encoder needs channels"))?;
+        let format = params.sample_format.unwrap_or(SampleFormat::S16);
+        let bits = bits_for_sample_format(format).ok_or_else(|| {
+            CoreError::invalid(format!(
+                "ape stores U8 / S16 / S24 PCM only, got {format:?}"
+            ))
+        })?;
+        let opts: ApeEncoderOptions = parse_options(&params.options)?;
+        let mut cfg = EncoderConfig::new(opts.compression_level, channels, sample_rate, bits);
+        cfg.blocks_per_frame = opts.blocks_per_frame;
+        let enc = ApeEncoder::new(cfg).map_err(to_core)?;
+
+        let mut output_params = CodecParameters::audio(CodecId::new(CODEC_ID));
+        output_params.sample_rate = Some(sample_rate);
+        output_params.channels = Some(channels);
+        output_params.sample_format = Some(format);
+        Ok(FrameworkEncoder {
+            codec_id: CodecId::new(CODEC_ID),
+            output_params,
+            enc: Some(enc),
+            samples_in: 0,
+            sample_rate,
+            finished: None,
+            flushed: false,
+        })
+    }
+}
+
+impl Encoder for FrameworkEncoder {
+    fn codec_id(&self) -> &CodecId {
+        &self.codec_id
+    }
+
+    fn output_params(&self) -> &CodecParameters {
+        &self.output_params
+    }
+
+    fn send_frame(&mut self, frame: &Frame) -> CoreResult<()> {
+        let audio = match frame {
+            Frame::Audio(a) => a,
+            _ => return Err(CoreError::invalid("ape encodes audio frames only")),
+        };
+        let enc = self
+            .enc
+            .as_mut()
+            .ok_or_else(|| CoreError::invalid("ape encoder already flushed"))?;
+        // Interleaved PCM rides in one plane.
+        let [plane] = audio.data.as_slice() else {
+            return Err(CoreError::invalid(
+                "ape expects one interleaved sample plane",
+            ));
+        };
+        enc.push_interleaved_bytes(plane).map_err(to_core)?;
+        self.samples_in += u64::from(audio.samples);
+        Ok(())
+    }
+
+    fn receive_packet(&mut self) -> CoreResult<Packet> {
+        match self.finished.take() {
+            Some(data) => {
+                let mut packet =
+                    Packet::new(0, TimeBase::new(1, i64::from(self.sample_rate)), data);
+                packet.pts = Some(0);
+                packet.dts = Some(0);
+                packet.duration = i64::try_from(self.samples_in).ok();
+                packet.flags.keyframe = true;
+                Ok(packet)
+            }
+            None if self.flushed => Err(CoreError::Eof),
+            None => Err(CoreError::NeedMore),
+        }
+    }
+
+    fn flush(&mut self) -> CoreResult<()> {
+        if let Some(enc) = self.enc.take() {
+            self.finished = Some(enc.finish().map_err(to_core)?);
+        }
+        self.flushed = true;
+        Ok(())
+    }
+}
+
+/// Direct encoder factory — the [`oxideav_core`] `EncoderFactory`
+/// signature, also usable without going through the registry.
+pub fn make_encoder(params: &CodecParameters) -> CoreResult<Box<dyn Encoder>> {
+    Ok(Box::new(FrameworkEncoder::from_params(params)?))
+}
+
 /// Install this crate's codec registration into `ctx`: the `"ape"`
-/// codec id with the whole-file decoder factory and the `'MAC '`
-/// payload-magic claim (an `.ape` file identifies itself by its own
-/// leading bytes; no container tag exists for the native carriage).
+/// codec id with the whole-file decoder and encoder factories and the
+/// `'MAC '` payload-magic claim (an `.ape` file identifies itself by
+/// its own leading bytes; no container tag exists for the native
+/// carriage).
 pub fn register(ctx: &mut RuntimeContext) {
     let mut caps = CodecCapabilities::audio("ape_sw");
     caps.lossless = true;
@@ -167,6 +359,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         CodecInfo::new(CodecId::new(CODEC_ID))
             .capabilities(caps)
             .decoder(make_decoder)
+            .encoder(make_encoder)
+            .encoder_options::<ApeEncoderOptions>()
             .payload_magic(crate::header::MAGIC),
     );
 }
@@ -176,7 +370,6 @@ oxideav_core::register!("ape", register);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxideav_core::TimeBase;
 
     const NOISE_STEREO: &[u8] = include_bytes!("../tests/fixtures/noise_stereo.ape");
     const TWO_FRAME: &[u8] = include_bytes!("../tests/fixtures/two_frame_mono8k.ape");
@@ -259,11 +452,168 @@ mod tests {
         assert!(dec.receive_frame().is_err());
     }
 
+    fn audio_params(rate: u32, ch: u16) -> CodecParameters {
+        let mut p = CodecParameters::audio(CodecId::new(CODEC_ID));
+        p.sample_rate = Some(rate);
+        p.channels = Some(ch);
+        p.sample_format = Some(SampleFormat::S16);
+        p
+    }
+
+    #[test]
+    fn registration_installs_a_working_encoder_factory() {
+        let mut ctx = RuntimeContext::new();
+        register(&mut ctx);
+        let mut params = audio_params(44100, 2);
+        params.options = params.options.set("compression_level", "high");
+        let mut enc = ctx.codecs.first_encoder(&params).expect("factory resolves");
+        // 300 stereo frames of deterministic ramp PCM.
+        let pcm: Vec<i32> = (0..600).map(|i| (i * 37) % 20000 - 10000).collect();
+        let bytes = crate::pcm::interleave_pcm_bytes(
+            &[
+                pcm.iter().step_by(2).copied().collect(),
+                pcm.iter().skip(1).step_by(2).copied().collect(),
+            ],
+            16,
+        )
+        .unwrap();
+        enc.send_frame(&Frame::Audio(AudioFrame {
+            samples: 300,
+            pts: Some(0),
+            data: vec![bytes.clone()],
+        }))
+        .unwrap();
+        assert!(matches!(enc.receive_packet(), Err(CoreError::NeedMore)));
+        enc.flush().unwrap();
+        let pkt = enc.receive_packet().unwrap();
+        assert_eq!(pkt.duration, Some(300));
+        assert!(matches!(enc.receive_packet(), Err(CoreError::Eof)));
+        // The packet is a complete .ape file: the decoder loops it back.
+        let dec = ApeDecoder::new(&pkt.data).unwrap();
+        assert_eq!(
+            dec.info().compression_level,
+            crate::header::CompressionLevel::High
+        );
+        assert_eq!(dec.decode_all_bytes().unwrap(), bytes);
+        // And it resolves through the payload-magic probe.
+        assert_eq!(
+            ctx.codecs
+                .resolve_payload_magic_ref(&pkt.data)
+                .map(|id| id.as_str().to_owned()),
+            Some(CODEC_ID.to_owned())
+        );
+    }
+
+    #[test]
+    fn encoder_decoder_loop_through_the_registry() {
+        // Framework encoder -> framework decoder, whole loop through
+        // registry-resolved factories.
+        let mut ctx = RuntimeContext::new();
+        register(&mut ctx);
+        let mut params = audio_params(8000, 1);
+        params.options = params
+            .options
+            .set("compression_level", "3000")
+            .set("blocks_per_frame", "256");
+        let mut enc = ctx.codecs.first_encoder(&params).unwrap();
+        let samples: Vec<i32> = (0..1000).map(|i| ((i * i) % 4001) - 2000).collect();
+        let bytes = crate::pcm::interleave_pcm_bytes(core::slice::from_ref(&samples), 16).unwrap();
+        // Ragged chunking across frame boundaries.
+        for chunk in bytes.chunks(154) {
+            enc.send_frame(&Frame::Audio(AudioFrame {
+                samples: (chunk.len() / 2) as u32,
+                pts: None,
+                data: vec![chunk.to_vec()],
+            }))
+            .unwrap();
+        }
+        enc.flush().unwrap();
+        let pkt = enc.receive_packet().unwrap();
+        let parsed = FileInfo::parse(&pkt.data).unwrap();
+        assert_eq!(parsed.blocks_per_frame, 256);
+        assert_eq!(parsed.total_frames, 4);
+
+        let mut dec = ctx.codecs.first_decoder(&params).unwrap();
+        dec.send_packet(&pkt).unwrap();
+        dec.flush().unwrap();
+        let mut out = Vec::new();
+        loop {
+            match dec.receive_frame() {
+                Ok(Frame::Audio(a)) => out.extend(a.data.into_iter().flatten()),
+                Ok(other) => panic!("{other:?}"),
+                Err(CoreError::Eof) => break,
+                Err(e) => panic!("{e}"),
+            }
+        }
+        assert_eq!(out, bytes);
+    }
+
+    #[test]
+    fn encoder_options_parse_labels_and_codes() {
+        for (raw, level) in [
+            ("fast", CompressionLevel::Fast),
+            ("normal", CompressionLevel::Normal),
+            ("extra high", CompressionLevel::ExtraHigh),
+            ("extra_high", CompressionLevel::ExtraHigh),
+            ("insane", CompressionLevel::Insane),
+            ("1000", CompressionLevel::Fast),
+            ("5000", CompressionLevel::Insane),
+        ] {
+            assert_eq!(parse_level(raw).unwrap(), level, "{raw}");
+        }
+        assert!(parse_level("ultra").is_err());
+        assert!(parse_level("1500").is_err());
+        // Through the schema-validated bag.
+        let mut params = audio_params(44100, 2);
+        params.options = params.options.set("compression_level", "bogus");
+        assert!(FrameworkEncoder::from_params(&params).is_err());
+        let mut params = audio_params(44100, 2);
+        params.options = params.options.set("no_such_key", "1");
+        assert!(FrameworkEncoder::from_params(&params).is_err());
+    }
+
+    #[test]
+    fn encoder_rejects_unsupported_shapes() {
+        // Missing required fields.
+        let p = CodecParameters::audio(CodecId::new(CODEC_ID));
+        assert!(FrameworkEncoder::from_params(&p).is_err());
+        // Unsupported sample format.
+        let mut p = audio_params(44100, 2);
+        p.sample_format = Some(SampleFormat::F32);
+        assert!(FrameworkEncoder::from_params(&p).is_err());
+        // Video frames rejected; ragged plane counts rejected.
+        let mut enc = FrameworkEncoder::from_params(&audio_params(44100, 1)).unwrap();
+        assert!(enc
+            .send_frame(&Frame::Audio(AudioFrame {
+                samples: 1,
+                pts: None,
+                data: vec![vec![0, 0], vec![0, 0]],
+            }))
+            .is_err());
+        // A non-frame-aligned byte plane is rejected.
+        assert!(enc
+            .send_frame(&Frame::Audio(AudioFrame {
+                samples: 1,
+                pts: None,
+                data: vec![vec![0u8; 3]],
+            }))
+            .is_err());
+    }
+
     #[test]
     fn sample_format_dispatch_covers_the_staged_depths() {
         assert_eq!(sample_format_for(8), Some(SampleFormat::U8));
         assert_eq!(sample_format_for(16), Some(SampleFormat::S16));
         assert_eq!(sample_format_for(24), Some(SampleFormat::S24));
         assert_eq!(sample_format_for(32), None);
+        for (f, bits) in [
+            (SampleFormat::U8, 8u16),
+            (SampleFormat::S16, 16),
+            (SampleFormat::S24, 24),
+        ] {
+            assert_eq!(bits_for_sample_format(f), Some(bits));
+            assert_eq!(sample_format_for(bits), Some(f));
+        }
+        assert_eq!(bits_for_sample_format(SampleFormat::F32), None);
     }
 }

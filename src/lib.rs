@@ -264,7 +264,10 @@ pub fn registry_name() -> &'static str {
 }
 
 #[cfg(feature = "registry")]
-pub use registry::{make_decoder, register, FrameworkDecoder, CODEC_ID};
+pub use registry::{
+    bits_for_sample_format, make_decoder, make_encoder, register, ApeEncoderOptions,
+    FrameworkDecoder, FrameworkEncoder, CODEC_ID,
+};
 
 /// Crate-root re-export of the `oxideav_core::register!`-generated
 /// dispatch entry. The macro expands inside [`registry`], but the
