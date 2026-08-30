@@ -8,8 +8,8 @@ reference binary at <http://www.monkeysaudio.com/>. Monkey's Audio
 pairs channel decorrelation, a cascade of IIR predictors, and a
 range-coded residual into a lossless integer-PCM round-trip.
 
-**The crate is a complete decoder for files of version 3.93 and
-above.** With the format reference's §6 staging (predictor cascade,
+**The crate is a complete codec — decoder and encoder — for the
+3990-era format.** With the format reference's §6 staging (predictor cascade,
 `delta[]` maintenance, per-frame entropy state) every stage between
 the range-coded bitstream and PCM is pinned and implemented: the
 complete range decoder (both version paths), the full per-version
@@ -20,17 +20,29 @@ sample reassembly. All seven vendor-encoded fixtures decode
 frame's stored CRC agreeing; the branches no vendor fixture can reach
 (pre-3990 entropy, the era-B `delta[]` rule, the 3930-era predictor
 form, deep cascades, 8/24-bit) are regression-locked by synthetic
-whole-file round-trips. The crate registers with the `oxideav-core`
-framework (codec id `ape`, `'MAC '` payload-magic claim).
+whole-file round-trips.
+
+**The encoder** writes complete 3990-era files — frame flags, the
+full predictor/entropy inverse, container, seek table, `cFileMD5` —
+at all five compression levels and all three bit depths, validated
+black-box against the reference binary in both directions (see
+"Encoder" below). The crate registers with the `oxideav-core`
+framework (codec id `ape`, `'MAC '` payload-magic claim, decoder
+**and** encoder factories).
 
 ```rust,no_run
-use oxideav_ape::ApeDecoder;
+use oxideav_ape::{ApeDecoder, encode_wav, CompressionLevel};
 
 let data = std::fs::read("music.ape").unwrap();
 let dec = ApeDecoder::new(&data).unwrap();
 // Whole file -> interleaved little-endian PCM, every frame verified
 // against its stored CRC.
 let pcm = dec.decode_all_bytes().unwrap();
+
+// And back: WAV -> .ape (header + trailing bytes stored verbatim).
+let wav = std::fs::read("music.wav").unwrap();
+let ape = encode_wav(&wav, CompressionLevel::High).unwrap();
+std::fs::write("music.ape", ape).unwrap();
 ```
 
 **Phase 1** lands the 8-byte file-header prefix the staged docs at
@@ -464,15 +476,78 @@ identical to the decode direction — these exist to round-trip-validate
 the branches no vendor fixture reaches and are exercised by
 whole-file synthetic streams in `tests/synthetic_roundtrip.rs`.
 
+## Encoder (PCM → `.ape`)
+
+The `encoder` + `writer` + `md5` modules close the loop: a real
+Monkey's Audio encoder producing complete 3990-era files. Every stage
+is the exact inverse of a decode step the staged format reference
+pins — the byte-exact decoder is the oracle — run in reverse order:
+§4.2 frame flags (per-channel silence, pseudo-stereo), §6.9
+decorrelation (`Y = s1 - s0`, `X = s0 + Y/2`, truncating), the §6
+predictor chain mirrors with the §6.1 cross terms, the §2.6 residual
+entropy encoder over the §4.4 per-sample stereo interleave (per-frame
+`k = 10, KSum = 16384`), the §4.2/§4.3 prologue + structural pad, the
+§4.1 LE-word audio-region layout, and the §1 container (descriptor,
+header, seek table, WAV-header/terminating blob pass-through, and the
+§1.8 `cFileMD5` from a self-contained RFC 1321 module). All five
+compression levels; 8/16/24-bit; mono and stereo; streaming input in
+any chunking (chunking-invariant output).
+
+```rust
+use oxideav_ape::{encode_pcm, ApeDecoder, CompressionLevel, EncoderConfig};
+
+let pcm = vec![vec![0i32, 1000, -1000, 32767, -32768]]; // mono i16 range
+let cfg = EncoderConfig::new(CompressionLevel::Insane, 1, 44100, 16);
+let file = encode_pcm(cfg, &pcm).unwrap();
+// The decoder is the oracle: byte-exact recovery, CRCs verified.
+let dec = ApeDecoder::new(&file).unwrap();
+assert_eq!(dec.decode_all_bytes().unwrap().len(), 10);
+```
+
+`ApeEncoder` is the streaming form (`push_samples` /
+`push_interleaved_bytes` → `finish`); `encode_wav` splits a RIFF/WAVE
+file and stores its header and trailing bytes verbatim (the §1.1
+blob pass-through); a trailing APEv2/ID3v1 tag can be appended
+verbatim via `EncoderConfig::trailing_tag` (pass-through only — the
+crate neither parses nor synthesises tags). `writer::FileLayout`
+reproduces every vendor fixture byte-for-byte from parsed fields,
+`cFileMD5` included.
+
+**Black-box validation** (reference console binary v13.22, invoked
+opaquely; 280/280 checks): at every level × depth × channel shape,
+our files decode byte-exactly through the vendor decoder **and pass
+its whole-file verify** (which checks `cFileMD5` and every frame
+CRC), and vendor-encoded files decode byte-exactly through us —
+including levels 3000/4000/5000, which no corpus fixture covers. Our
+compressed sizes equal the vendor's to within the final coder-flush
+bytes per frame (single-frame files typically differ by 0–4 bytes
+total; ratios match to 0.01 %). A vendor file with a non-empty
+terminating blob settled the staged §1.8 GAP black-box: the blob
+folds into `cFileMD5` immediately after the frame data — exactly the
+write-order inference this crate implements.
+
+Measured ratios (our output = vendor output size to within flush
+bytes, all levels): ±3000 uniform noise 81.6 → 80.7 %, rail-to-rail
+square 45.6 → 38.9 %, swept sine 18.7 → 17.4 %, DC 11.3 → 11.1 %,
+digital silence 0.06 %, full-range noise ~102–103 % (incompressible;
+matches the vendor byte-for-byte-sized).
+
 ## Framework registration
 
 With the `registry` feature (default on) the crate declares itself to
-`oxideav-core`: codec id **`ape`**, a decoder factory
-(`make_decoder`), and the `'MAC '` payload-magic claim.
-`FrameworkDecoder` is the packet-facing adapter — Monkey's Audio is a
-self-contained file format, so the whole file's bytes stream in via
-one or more packets and one CRC-verified interleaved `AudioFrame` per
-APE frame streams out, with block-accurate `pts`.
+`oxideav-core`: codec id **`ape`**, decoder + encoder factories
+(`make_decoder` / `make_encoder`, also exposed directly per the
+dual-API convention), a schema-validated encoder options struct
+(`ApeEncoderOptions`: `compression_level` as label or raw
+`1000..5000` code, `blocks_per_frame`), and the `'MAC '`
+payload-magic claim. `FrameworkDecoder` is the packet-facing
+adapter — Monkey's Audio is a self-contained file format, so the
+whole file's bytes stream in via one or more packets and one
+CRC-verified interleaved `AudioFrame` per APE frame streams out, with
+block-accurate `pts`. `FrameworkEncoder` mirrors the contract:
+interleaved-PCM `AudioFrame`s in any chunking, `flush`, then one
+packet holding the complete `.ape` file (the container finalises its
+frame count, seek table, and MD5 at close).
 
 ## Scalar constants + pinned closed forms
 
@@ -522,7 +597,7 @@ own closed form is wired.
 
 | Feature    | Default | Effect                                                                 |
 |------------|:-------:|------------------------------------------------------------------------|
-| `registry` | yes     | Pulls in `oxideav-core` so the crate can declare itself to the framework registry once the decoder lands. |
+| `registry` | yes     | Pulls in `oxideav-core` and declares the codec to the framework registry (decoder + encoder factories, payload magic). |
 
 `default-features = false` gives a standalone build that exposes
 only the file-header parser API surface and the crate-local
@@ -543,11 +618,14 @@ only the file-header parser API surface and the crate-local
 - **≥ 3-channel** sample reassembly (staged GAP; the snapshot's
   multichannel wrapper is dead code describing no shipping stream).
 - **Old-file seek-bit-table semantics** (`<= 3800`, staged GAP).
-- The **terminating-blob position inside `cFileMD5`** (staged GAP; not
-  needed for decode — the digest is stored, not verified, on parse).
-- A **production encoder**: the shipped encode mirrors are
-  round-trip-validation grade (they emit valid streams the decoder
-  reproduces byte-exact, but no rate/quality tuning is claimed).
+- **Pre-3990 / multichannel encoding**: the encoder writes the
+  3990-era format only (1–2 channels, 8/16/24-bit) — the same
+  envelope the current vendor encoder emits.
+
+(The terminating-blob position inside `cFileMD5`, previously a staged
+GAP, is settled black-box: the blob folds in immediately after the
+frame data — confirmed against a vendor-encoded file carrying one,
+and the vendor verifier accepts this crate's digests.)
 
 ## Clean-room wall
 
@@ -574,8 +652,11 @@ online resource.
 Black-box validation against the reference **binary** (console
 encoder v13.18, invoked as an opaque tool over engineered PCM inputs)
 established the frame-layout facts the staged reference marks as GAPs
-and produced the committed `tests/fixtures/*.ape`; the binary's source
-was never consulted.
+and produced the committed `tests/fixtures/*.ape`; the encoder was
+additionally validated both directions against the console binary
+v13.22 (opaque invocations of its compress / decompress / verify
+modes only). The binary's source was never consulted. The MD5 module
+implements the public RFC 1321 algorithm from its specification.
 
 ## License
 

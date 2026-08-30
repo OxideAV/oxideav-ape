@@ -9,6 +9,41 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+### Added
+
+- A real Monkey's Audio **encoder**: PCM -> complete 3990-era `.ape`
+  files at all five compression levels and 8/16/24-bit depths — frame
+  flags (silence / pseudo-stereo), the full predictor + entropy
+  inverse with per-sample stereo interleave, the frame prologue/pad
+  and LE-word audio-region layout, and the new-era container
+  (descriptor, header, seek table, WAV-header / terminating-blob
+  pass-through, `cFileMD5` via a self-contained RFC 1321 MD5 module).
+  `ApeEncoder` streams input in any chunking with chunking-invariant
+  output; `encode_pcm` / `encode_wav` are the one-shot forms;
+  `writer::FileLayout` reproduces every vendor fixture byte-for-byte
+  from parsed fields, digest included. Validated black-box against
+  the reference console binary both directions at every level and
+  depth (byte-exact decode + whole-file verify), with compressed
+  sizes equal to the vendor's to within the final coder-flush bytes.
+- Framework **encoder factory**: `register()` now wires
+  `make_encoder` (dual-API convention) with the schema-validated
+  `ApeEncoderOptions` (`compression_level` label or raw code,
+  `blocks_per_frame`); `FrameworkEncoder` mirrors the decoder's
+  whole-file packet contract.
+- `pcm::deinterleave_pcm_bytes` (the §6.9 inverse),
+  `Error::InvalidInput` for encoder-input rejection, and
+  `writer::canonical_wav_header`.
+
+### Changed
+
+- `RangeEncoder::finish` renormalises before the four flush bytes, so
+  a sequential frame walk that finalises per the staged §6.10.3 rule
+  lands exactly on the next frame's first byte (trailing zero bytes
+  only; decoding is unaffected).
+- The `cFileMD5` terminating-blob position — previously a staged §1.8
+  GAP — is settled black-box and implemented: the blob folds into the
+  digest immediately after the frame data.
+
 ## [0.0.3](https://github.com/OxideAV/oxideav-ape/compare/v0.0.2...v0.0.3) - 2026-08-23
 
 ### Other

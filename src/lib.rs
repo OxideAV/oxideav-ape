@@ -1,18 +1,23 @@
 //! # oxideav-ape
 //!
-//! **Status: complete clean-room decoder for files of version 3.93
-//! and above.** Every stage between the range-coded bitstream and PCM
-//! is pinned by the staged docs and implemented: range decoder (both
-//! version paths), per-version header/tail extraction (both eras),
-//! the vendor frame layer, the §6 adaptive predictor chain
-//! ([`nn_filter`] + [`predict`]), channel decorrelation, and
-//! 8/16/24-bit sample reassembly ([`pcm`]). All seven vendor-encoded
-//! fixtures decode **byte-for-byte identically** to the staged
-//! reference PCM with every stored per-frame CRC agreeing; the
-//! branches no vendor fixture reaches are regression-locked by
-//! synthetic whole-file round-trips. The `registry` feature wires the
-//! crate into the `oxideav-core` framework (codec id `ape`, `'MAC '`
-//! payload-magic claim, whole-file packet contract).
+//! **Status: complete clean-room codec — decoder and encoder.** Every
+//! decode stage between the range-coded bitstream and PCM is pinned
+//! by the staged docs and implemented: range decoder (both version
+//! paths), per-version header/tail extraction (both eras), the vendor
+//! frame layer, the §6 adaptive predictor chain ([`nn_filter`] +
+//! [`predict`]), channel decorrelation, and 8/16/24-bit sample
+//! reassembly ([`pcm`]). All seven vendor-encoded fixtures decode
+//! **byte-for-byte identically** to the staged reference PCM with
+//! every stored per-frame CRC agreeing; the branches no vendor
+//! fixture reaches are regression-locked by synthetic whole-file
+//! round-trips. The [`encoder`] + [`writer`] + [`md5`] modules run
+//! the same pipeline in reverse into complete 3990-era files (frame
+//! flags, predictor/entropy inverse, container, seek table,
+//! `cFileMD5`) at all five levels and all three bit depths, validated
+//! black-box against the reference binary in both directions. The
+//! `registry` feature wires the crate into the `oxideav-core`
+//! framework (codec id `ape`, `'MAC '` payload-magic claim,
+//! whole-file packet contract, decoder + encoder factories).
 //!
 //! Pure-Rust scaffold for **Monkey's Audio** (`.ape`), the lossless
 //! audio codec authored by Matthew T. Ashland and distributed as the
@@ -156,7 +161,7 @@
 //!
 //! | Feature    | Default | Effect                                                                 |
 //! |------------|:-------:|------------------------------------------------------------------------|
-//! | `registry` | yes     | Pulls in `oxideav-core` so the crate can declare itself to the framework registry once the decoder lands. |
+//! | `registry` | yes     | Pulls in `oxideav-core` and declares the codec to the framework registry (decoder + encoder factories, payload magic). |
 //!
 //! `default-features = false` gives a standalone build that exposes
 //! only the file-header parser API surface and the crate-local
