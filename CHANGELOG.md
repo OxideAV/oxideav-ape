@@ -9,6 +9,20 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+## [0.0.3](https://github.com/OxideAV/oxideav-ape/compare/v0.0.2...v0.0.3) - 2026-08-23
+
+### Other
+
+- re-export the framework dispatch entry at the crate root
+- corruption/truncation sweeps through the full PCM + CRC path
+- decoder-complete refresh — README, lib narrative, stale notes
+- encode mirrors + synthetic whole-file round-trips for the source-only branches
+- registry wire-up — framework decoder factory + 'MAC ' payload-magic claim
+- predictor cascade lands — whole-file PCM decode, byte-exact on the full fixture corpus
+- multi-frame geometry + allocation guard + real-file docs refresh
+- full header/tail extraction + vendor frame layer — real-file entropy decode lands
+- range decoder + residual entropy codec from the staged format reference §2
+
 ### Fixed
 
 - Re-export the framework dispatch entry (`__oxideav_entry`) at the
