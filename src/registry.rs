@@ -573,6 +573,91 @@ mod tests {
     }
 
     #[test]
+    fn registry_loop_covers_u8_and_s24_formats() {
+        // The S16 loop is covered above; close the other two staged
+        // depths through the same registry-resolved factories.
+        for (format, bits, seed) in [(SampleFormat::U8, 8u16, 3u64), (SampleFormat::S24, 24, 5)] {
+            let mut ctx = RuntimeContext::new();
+            register(&mut ctx);
+            let mut params = audio_params(11025, 2);
+            params.sample_format = Some(format);
+            params.options = params.options.set("blocks_per_frame", "128");
+            let mut enc = ctx.codecs.first_encoder(&params).unwrap();
+            let bound = if bits == 8 { 128 } else { 1 << 23 };
+            let mut s = seed;
+            let mut ch = |n: usize| -> Vec<i32> {
+                (0..n)
+                    .map(|_| {
+                        s ^= s << 13;
+                        s ^= s >> 7;
+                        s ^= s << 17;
+                        ((s >> 33) as i32) % (2 * bound) - bound
+                    })
+                    .collect()
+            };
+            let pcm = [ch(300), ch(300)];
+            let bytes = crate::pcm::interleave_pcm_bytes(&pcm, bits).unwrap();
+            enc.send_frame(&Frame::Audio(AudioFrame {
+                samples: 300,
+                pts: None,
+                data: vec![bytes.clone()],
+            }))
+            .unwrap();
+            enc.flush().unwrap();
+            let pkt = enc.receive_packet().unwrap();
+            assert_eq!(
+                FileInfo::parse(&pkt.data).unwrap().bits_per_sample,
+                bits,
+                "{format:?}"
+            );
+            let mut dec = ctx.codecs.first_decoder(&params).unwrap();
+            dec.send_packet(&pkt).unwrap();
+            dec.flush().unwrap();
+            let mut out = Vec::new();
+            loop {
+                match dec.receive_frame() {
+                    Ok(Frame::Audio(a)) => out.extend(a.data.into_iter().flatten()),
+                    Ok(other) => panic!("{other:?}"),
+                    Err(CoreError::Eof) => break,
+                    Err(e) => panic!("{format:?}: {e}"),
+                }
+            }
+            assert_eq!(out, bytes, "{format:?}: PCM loop");
+        }
+    }
+
+    #[test]
+    fn framework_encoder_is_deterministic_and_single_shot() {
+        // Same input twice -> byte-identical packets; after the file
+        // packet, Eof; sending past flush errors.
+        let make = || {
+            let mut enc = FrameworkEncoder::from_params(&audio_params(8000, 1)).unwrap();
+            enc.send_frame(&Frame::Audio(AudioFrame {
+                samples: 4,
+                pts: None,
+                data: vec![vec![1, 0, 2, 0, 3, 0, 4, 0]],
+            }))
+            .unwrap();
+            enc.flush().unwrap();
+            enc.receive_packet().unwrap().data
+        };
+        assert_eq!(make(), make());
+        let mut enc = FrameworkEncoder::from_params(&audio_params(8000, 1)).unwrap();
+        enc.flush().unwrap();
+        // Empty input still yields a well-formed (zero-block) file.
+        let pkt = enc.receive_packet().unwrap();
+        assert_eq!(FileInfo::parse(&pkt.data).unwrap().final_frame_blocks, 0);
+        assert!(matches!(enc.receive_packet(), Err(CoreError::Eof)));
+        assert!(enc
+            .send_frame(&Frame::Audio(AudioFrame {
+                samples: 1,
+                pts: None,
+                data: vec![vec![0, 0]],
+            }))
+            .is_err());
+    }
+
+    #[test]
     fn encoder_rejects_unsupported_shapes() {
         // Missing required fields.
         let p = CodecParameters::audio(CodecId::new(CODEC_ID));
