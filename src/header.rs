@@ -859,6 +859,9 @@ mod tests {
                     Err(Error::NonFinalized) => panic!(
                         "NonFinalized leaked out of parse() at offset {offset}; that variant belongs to the full-layout parser, not the binary prefix parser"
                     ),
+                    Err(Error::InvalidInput(_)) => panic!(
+                        "InvalidInput leaked out of parse() at offset {offset}; that variant belongs to the encoder's input validation, not the binary prefix parser"
+                    ),
                 }
             }
         }

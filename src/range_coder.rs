@@ -378,9 +378,21 @@ impl RangeEncoder {
     }
 
     /// Flush the remaining `low` window and return the byte stream.
-    /// Emits four bytes — the full 31-bit window — so the decoder's
-    /// eager lookahead always lands on determined bytes.
+    ///
+    /// First renormalises (the mirror of the decoder's §6.10.3
+    /// end-of-frame finalise, which renormalises while `range <=
+    /// BOTTOM_VALUE` advancing one byte per iteration), then emits
+    /// four bytes — the full 31-bit window — so the decoder's eager
+    /// lookahead always lands on determined bytes. The renormalise
+    /// contributes only trailing bytes below the window, so decoding
+    /// is unaffected; what it fixes is the **byte count**: the coder
+    /// primes off one byte and pre-reads three more before the first
+    /// symbol, so a sequential frame walk that finalises per §6.10.3
+    /// consumes `1 + 3 + N + F` bytes for `N` in-band renormalisations
+    /// and `F` finalise steps, and the encoder must write exactly
+    /// `N + F + 4` to land the walk on the next frame's first byte.
     pub fn finish(mut self) -> Vec<u8> {
+        self.normalize();
         for _ in 0..4 {
             self.shift_low();
         }

@@ -199,10 +199,78 @@ pub fn interleave_pcm_bytes(channels: &[Vec<i32>], bits_per_sample: u16) -> Resu
     Ok(out)
 }
 
+/// Inverse of [`interleave_pcm_bytes`]: split stored interleaved PCM
+/// bytes into per-channel sample arrays per the §6.9 bit-depth table
+/// (8-bit unbiased by 128, 16-bit little-endian `i16`, 24-bit three
+/// little-endian bytes sign-extended). The buffer must hold a whole
+/// number of sample frames.
+pub fn deinterleave_pcm_bytes(
+    bytes: &[u8],
+    bits_per_sample: u16,
+    channels: u16,
+) -> Result<Vec<Vec<i32>>> {
+    let bytes_per = match bits_per_sample {
+        8 => 1usize,
+        16 => 2,
+        24 => 3,
+        _ => {
+            return Err(Error::InvalidInput(
+                "bits-per-sample outside the staged {8, 16, 24} set",
+            ))
+        }
+    };
+    if channels == 0 {
+        return Err(Error::InvalidInput("channel count must be non-zero"));
+    }
+    let align = bytes_per * usize::from(channels);
+    if bytes.len() % align != 0 {
+        return Err(Error::InvalidInput(
+            "PCM byte buffer is not a whole number of sample frames",
+        ));
+    }
+    let n = bytes.len() / align;
+    let mut out = vec![Vec::with_capacity(n); usize::from(channels)];
+    for frame in bytes.chunks_exact(align) {
+        for (ch, s) in frame.chunks_exact(bytes_per).enumerate() {
+            let v = match bits_per_sample {
+                8 => i32::from(s[0]) - 128,
+                16 => i32::from(i16::from_le_bytes([s[0], s[1]])),
+                _ => (i32::from_le_bytes([0, s[0], s[1], s[2]])) >> 8,
+            };
+            out[ch].push(v);
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::frame::FramePrologue;
+
+    #[test]
+    fn deinterleave_inverts_interleave_at_every_depth() {
+        let cases: [(u16, i32); 3] = [(8, 127), (16, 32767), (24, 8_388_607)];
+        for (bits, max) in cases {
+            let ch0: Vec<i32> = vec![0, 1, -1, max, -max - 1, max / 3, -max / 7];
+            let ch1: Vec<i32> = ch0.iter().map(|v| -v / 2).collect();
+            let bytes = interleave_pcm_bytes(&[ch0.clone(), ch1.clone()], bits).unwrap();
+            assert_eq!(
+                deinterleave_pcm_bytes(&bytes, bits, 2).unwrap(),
+                vec![ch0.clone(), ch1],
+                "{bits}-bit stereo"
+            );
+            let mono = interleave_pcm_bytes(std::slice::from_ref(&ch0), bits).unwrap();
+            assert_eq!(deinterleave_pcm_bytes(&mono, bits, 1).unwrap(), vec![ch0]);
+        }
+        assert!(deinterleave_pcm_bytes(&[0; 3], 16, 1).is_err());
+        assert!(deinterleave_pcm_bytes(&[0; 4], 32, 1).is_err());
+        assert!(deinterleave_pcm_bytes(&[0; 4], 16, 0).is_err());
+        assert_eq!(
+            deinterleave_pcm_bytes(&[], 16, 2).unwrap(),
+            vec![Vec::<i32>::new(), Vec::new()]
+        );
+    }
 
     fn residuals(arrays: Vec<Vec<i32>>, flags: Option<u32>) -> FrameResiduals {
         FrameResiduals {

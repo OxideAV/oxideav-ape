@@ -169,6 +169,7 @@ pub mod cascade;
 pub mod config;
 pub mod decoder;
 pub mod decorrelate;
+pub mod encoder;
 pub mod entropy;
 pub mod error;
 pub mod file_header;
@@ -176,6 +177,7 @@ pub mod filter_config;
 pub mod frame;
 pub mod freq_model;
 pub mod header;
+pub mod md5;
 pub mod nn_filter;
 pub mod pcm;
 pub mod pipeline;
@@ -185,6 +187,7 @@ pub mod range_coder;
 #[cfg(feature = "registry")]
 pub mod registry;
 pub mod scalars;
+pub mod writer;
 
 pub use cascade::{
     cascade_decode, cascade_encode, filter_stage_decode, filter_stage_encode, StageState,
@@ -194,6 +197,10 @@ pub use decoder::{ApeDecoder, FrameDecode, FrameDeltaSource};
 pub use decorrelate::{
     decorrelate_pair, decorrelate_pair_arith_shift, reconstruct_block,
     reconstruct_block_arith_shift, reconstruct_pair, reconstruct_pair_arith_shift,
+};
+pub use encoder::{
+    encode_pcm, encode_wav, ApeEncoder, EncodedFrame, EncoderConfig, WavSplit,
+    DEFAULT_BLOCKS_PER_FRAME,
 };
 pub use entropy::{
     fold_residual, unfold_residual, EntropyInit, ResidualDecoder, ResidualEncoder,
@@ -214,7 +221,10 @@ pub use freq_model::{
 };
 pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
 pub use nn_filter::{DeltaEra, NnFilter, DELTA_ERA_SPLIT_VERSION, NN_WINDOW};
-pub use pcm::{frame_pcm, interleave_pcm_bytes, pcm_to_coded_arrays, reconstruct_sample_pair};
+pub use pcm::{
+    deinterleave_pcm_bytes, frame_pcm, interleave_pcm_bytes, pcm_to_coded_arrays,
+    reconstruct_sample_pair,
+};
 pub use pipeline::{
     decode_frame, encode_frame, CorrelationRounding, DeltaSink, DeltaSource, FrameChannels,
 };
@@ -231,6 +241,7 @@ pub use scalars::{
     ksum_pivot, stage1_predict, KSUM_PIVOT_DIVISOR, PREDICTOR_HISTORY_SEED, STAGE1_FILTER_SHIFT,
     STAGE1_FILTER_WEIGHT,
 };
+pub use writer::{canonical_wav_header, to_le_word_layout, FileLayout, ENCODER_FILE_VERSION};
 
 /// Crate identifier used by the future `oxideav-core` registry entry.
 pub const CRATE_NAME: &str = "oxideav-ape";

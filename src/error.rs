@@ -77,6 +77,12 @@ pub enum Error {
     /// derived-quantity rules define as a non-finalised (truncated)
     /// encode and treat as an error.
     NonFinalized,
+    /// The encoder was handed input it cannot represent in the stream
+    /// it is configured to write (an unsupported channel count or bit
+    /// depth, a sample outside the bit depth's range, ragged channel
+    /// arrays, a byte buffer that is not a whole number of sample
+    /// frames, …). The payload names the violated precondition.
+    InvalidInput(&'static str),
 }
 
 impl core::fmt::Display for Error {
@@ -114,6 +120,9 @@ impl core::fmt::Display for Error {
             Error::NonFinalized => f.write_str(
                 "oxideav-ape: non-finalised file (total_frames == 0 marks a truncated encode)",
             ),
+            Error::InvalidInput(what) => {
+                write!(f, "oxideav-ape: encoder input rejected — {what}")
+            }
         }
     }
 }
