@@ -9,6 +9,16 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+## [0.0.4](https://github.com/OxideAV/oxideav-ape/compare/v0.0.3...v0.0.4) - 2026-08-30
+
+### Other
+
+- registry tests: U8/S24 whole loops, encoder determinism, single-shot contract
+- codec-complete refresh — encoder status, validation results, settled MD5 gap
+- encoder factory + framework Encoder adapter (dual API)
+- encoder round-trip suite — fixture re-encode parity + synthetic battery
+- encoder core — full 3990 encode pipeline, container writer, cFileMD5
+
 ### Added
 
 - A real Monkey's Audio **encoder**: PCM -> complete 3990-era `.ape`
