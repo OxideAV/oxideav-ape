@@ -39,7 +39,7 @@ pub const TERMINATING_DATA_IN_MD5_AFTER_FRAMES: bool = true;
 /// number of words first (the vendor pads the region the same way —
 /// every fixture's `nAPEFrameDataBytes` is a multiple of 4).
 pub fn to_le_word_layout(mut logical: Vec<u8>) -> Vec<u8> {
-    while logical.len() % 4 != 0 {
+    while !logical.len().is_multiple_of(4) {
         logical.push(0);
     }
     for chunk in logical.chunks_mut(4) {

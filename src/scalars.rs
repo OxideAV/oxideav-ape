@@ -206,11 +206,7 @@ pub const fn stage1_predict(x: i32) -> i32 {
 #[inline]
 pub const fn ksum_pivot(ksum: u64) -> u64 {
     let quotient = ksum / KSUM_PIVOT_DIVISOR as u64;
-    if quotient == 0 {
-        1
-    } else {
-        quotient
-    }
+    if quotient == 0 { 1 } else { quotient }
 }
 
 #[cfg(test)]
@@ -288,7 +284,7 @@ mod tests {
         assert_eq!(stage1_predict(32), 31);
         assert_eq!(stage1_predict(64), 62); // 1984 >> 5 = 62.
         assert_eq!(stage1_predict(1), 0); // 31 >> 5 = 0.
-                                          // Exact agreement with the spelled-out closed form.
+        // Exact agreement with the spelled-out closed form.
         for x in [-1000i32, -33, -1, 0, 1, 7, 31, 32, 1000, 65535] {
             let expected = (i64::from(x) * 31) >> 5;
             assert_eq!(i64::from(stage1_predict(x)), expected);

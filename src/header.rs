@@ -421,7 +421,7 @@ mod tests {
     fn extra_bytes_after_prefix_are_ignored_phase1() {
         // 8-byte well-formed prefix + 16 bytes of opaque tail.
         let mut bytes = vec![b'M', b'A', b'C', b' ', 0x50, 0x0F, 0xD0, 0x07];
-        bytes.extend(std::iter::repeat(0xAA).take(16));
+        bytes.extend(std::iter::repeat_n(0xAA, 16));
         let h = HeaderPrefix::parse(&bytes).expect("trailing bytes ignored");
         assert_eq!(h.header_tail_offset, 8);
         // The tail bytes are the caller's responsibility — Phase 1
@@ -835,9 +835,9 @@ mod tests {
                         // which `parse` does not gate.
                         assert!(offset >= 6, "UnknownCompressionLevel at offset {offset}");
                     }
-                    Err(Error::Truncated) => panic!(
-                        "Truncated reported for an 8-byte buffer at offset {offset}"
-                    ),
+                    Err(Error::Truncated) => {
+                        panic!("Truncated reported for an 8-byte buffer at offset {offset}")
+                    }
                     Err(Error::UnknownCompressionLabel) => panic!(
                         "UnknownCompressionLabel leaked out of parse() at offset {offset}; that variant belongs to FromStr, not the binary prefix parser"
                     ),

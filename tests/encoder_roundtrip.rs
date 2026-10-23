@@ -18,7 +18,7 @@
 //! are recorded in the README.)
 
 use oxideav_ape::decoder::ApeDecoder;
-use oxideav_ape::encoder::{encode_pcm, encode_wav, ApeEncoder, EncoderConfig};
+use oxideav_ape::encoder::{ApeEncoder, EncoderConfig, encode_pcm, encode_wav};
 use oxideav_ape::header::CompressionLevel;
 use oxideav_ape::pcm::{deinterleave_pcm_bytes, interleave_pcm_bytes};
 use oxideav_ape::writer::canonical_wav_header;
@@ -194,7 +194,7 @@ fn synthetic_battery_round_trips_at_every_level() {
             assert_eq!(dec.info().total_frames, blocks.div_ceil(1024));
             assert_eq!(
                 dec.info().final_frame_blocks,
-                if blocks % 1024 == 0 {
+                if blocks.is_multiple_of(1024) {
                     1024
                 } else {
                     blocks % 1024

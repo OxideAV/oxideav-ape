@@ -16,7 +16,7 @@
 
 use crate::error::{Error, Result};
 use crate::file_header::FileInfo;
-use crate::frame::{decode_frame_residuals, FrameResiduals};
+use crate::frame::{FrameResiduals, decode_frame_residuals};
 use crate::pcm::{frame_pcm, interleave_pcm_bytes};
 use crate::pipeline::DeltaSource;
 
@@ -246,7 +246,7 @@ impl DeltaSource for FrameDeltaSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipeline::{decode_frame, CorrelationRounding, FrameChannels};
+    use crate::pipeline::{CorrelationRounding, FrameChannels, decode_frame};
 
     #[test]
     fn frame_delta_source_serves_channels_in_unpack_order() {

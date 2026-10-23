@@ -4,9 +4,9 @@
 //! walks, and the header parser's documented value space.
 
 use oxideav_ape::{
-    cascade_decode, cascade_encode, decode_frame, encode_frame, ksum_pivot, stage1_predict,
     CompressionLevel, CorrelationRounding, DeltaSink, DeltaSource, Error, FilterCascade,
-    FrameChannels, HeaderPrefix, StageState,
+    FrameChannels, HeaderPrefix, StageState, cascade_decode, cascade_encode, decode_frame,
+    encode_frame, ksum_pivot, stage1_predict,
 };
 
 fn xorshift(state: &mut u64) -> u64 {

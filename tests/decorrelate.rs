@@ -3,8 +3,8 @@
 //! one of the public-API entry points the crate root re-exports.
 
 use oxideav_ape::{
-    decorrelate_pair, reconstruct_block, reconstruct_block_arith_shift, reconstruct_pair,
-    reconstruct_pair_arith_shift, Error,
+    Error, decorrelate_pair, reconstruct_block, reconstruct_block_arith_shift, reconstruct_pair,
+    reconstruct_pair_arith_shift,
 };
 
 #[test]

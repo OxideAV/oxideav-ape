@@ -17,7 +17,7 @@
 
 use crate::filter_config::FilterCascade;
 use crate::freq_model::{
-    counts_for_version, freqs_for_version, FREQ_MODEL_VERSION_SPLIT, MODEL_ELEMENTS,
+    FREQ_MODEL_VERSION_SPLIT, MODEL_ELEMENTS, counts_for_version, freqs_for_version,
 };
 use crate::header::HeaderPrefix;
 

@@ -200,7 +200,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cascade::{cascade_decode, cascade_encode, StageState};
+    use crate::cascade::{StageState, cascade_decode, cascade_encode};
     use crate::error::Error;
     use crate::filter_config::FilterCascade;
     use crate::header::CompressionLevel;

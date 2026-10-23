@@ -25,7 +25,7 @@
 
 use oxideav_ape::decoder::ApeDecoder;
 use oxideav_ape::entropy::ResidualEncoder;
-use oxideav_ape::frame::{crc32, FRAME_ENTROPY_INIT, FRAME_PRIME_PAD_BYTES};
+use oxideav_ape::frame::{FRAME_ENTROPY_INIT, FRAME_PRIME_PAD_BYTES, crc32};
 use oxideav_ape::header::CompressionLevel;
 use oxideav_ape::pcm::{interleave_pcm_bytes, pcm_to_coded_arrays};
 
@@ -47,7 +47,7 @@ fn noise(seed: u64, len: usize, bound: i32) -> Vec<i32> {
 /// MSB-first, so logical byte `p` lives at physical `(p & !3) + (3 -
 /// (p & 3))` — a per-word byte reversal over the whole region.
 fn to_le_word_layout(mut logical: Vec<u8>) -> Vec<u8> {
-    while logical.len() % 4 != 0 {
+    while !logical.len().is_multiple_of(4) {
         logical.push(0);
     }
     for chunk in logical.chunks_mut(4) {

@@ -559,8 +559,8 @@ mod tests {
     #[test]
     fn interval_symbols_round_trip_against_both_staged_models() {
         use crate::freq_model::{
-            symbol_for_cum_freq, symbol_interval, COUNTS_GE3990, COUNTS_LE3980, MODEL_ELEMENTS,
-            RANGE_OVERFLOW_SHIFT,
+            COUNTS_GE3990, COUNTS_LE3980, MODEL_ELEMENTS, RANGE_OVERFLOW_SHIFT,
+            symbol_for_cum_freq, symbol_interval,
         };
         for counts in [&COUNTS_LE3980, &COUNTS_GE3990] {
             let symbols: Vec<usize> = (0..2048)
@@ -588,7 +588,7 @@ mod tests {
         // Interleave interval symbols, bit fields, and arbitrary-radix
         // bases the way the residual layer does.
         use crate::freq_model::{
-            symbol_for_cum_freq, symbol_interval, COUNTS_GE3990, RANGE_OVERFLOW_SHIFT,
+            COUNTS_GE3990, RANGE_OVERFLOW_SHIFT, symbol_for_cum_freq, symbol_interval,
         };
         let counts = &COUNTS_GE3990;
         let mut enc = RangeEncoder::new();

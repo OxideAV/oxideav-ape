@@ -88,7 +88,7 @@ pub(crate) const fn parse_u32_col<const N: usize>(csv: &str) -> [u32; N] {
             i += 1;
         }
         i += 1; // step past the comma
-                // Parse the second column up to newline / EOF.
+        // Parse the second column up to newline / EOF.
         let mut v: u32 = 0;
         while i < bytes.len() && bytes[i] >= b'0' && bytes[i] <= b'9' {
             v = v * 10 + (bytes[i] - b'0') as u32;

@@ -29,15 +29,15 @@
 //! `blocks_per_frame` tunes the frame size.
 
 use crate::decoder::ApeDecoder;
-use crate::encoder::{ApeEncoder, EncoderConfig, DEFAULT_BLOCKS_PER_FRAME};
+use crate::encoder::{ApeEncoder, DEFAULT_BLOCKS_PER_FRAME, EncoderConfig};
 use crate::error::Error as ApeError;
 use crate::file_header::FileInfo;
 use crate::header::CompressionLevel;
 use oxideav_core::registry::CodecInfo;
 use oxideav_core::{
-    parse_options, AudioFrame, CodecCapabilities, CodecId, CodecOptionsStruct, CodecParameters,
-    Decoder, Encoder, Error as CoreError, Frame, OptionField, OptionKind, OptionValue, Packet,
-    Result as CoreResult, RuntimeContext, SampleFormat, TimeBase,
+    AudioFrame, CodecCapabilities, CodecId, CodecOptionsStruct, CodecParameters, Decoder, Encoder,
+    Error as CoreError, Frame, OptionField, OptionKind, OptionValue, Packet, Result as CoreResult,
+    RuntimeContext, SampleFormat, TimeBase, parse_options,
 };
 
 /// The registry codec id this crate claims.
@@ -648,13 +648,14 @@ mod tests {
         let pkt = enc.receive_packet().unwrap();
         assert_eq!(FileInfo::parse(&pkt.data).unwrap().final_frame_blocks, 0);
         assert!(matches!(enc.receive_packet(), Err(CoreError::Eof)));
-        assert!(enc
-            .send_frame(&Frame::Audio(AudioFrame {
+        assert!(
+            enc.send_frame(&Frame::Audio(AudioFrame {
                 samples: 1,
                 pts: None,
                 data: vec![vec![0, 0]],
             }))
-            .is_err());
+            .is_err()
+        );
     }
 
     #[test]
@@ -668,21 +669,23 @@ mod tests {
         assert!(FrameworkEncoder::from_params(&p).is_err());
         // Video frames rejected; ragged plane counts rejected.
         let mut enc = FrameworkEncoder::from_params(&audio_params(44100, 1)).unwrap();
-        assert!(enc
-            .send_frame(&Frame::Audio(AudioFrame {
+        assert!(
+            enc.send_frame(&Frame::Audio(AudioFrame {
                 samples: 1,
                 pts: None,
                 data: vec![vec![0, 0], vec![0, 0]],
             }))
-            .is_err());
+            .is_err()
+        );
         // A non-frame-aligned byte plane is rejected.
-        assert!(enc
-            .send_frame(&Frame::Audio(AudioFrame {
+        assert!(
+            enc.send_frame(&Frame::Audio(AudioFrame {
                 samples: 1,
                 pts: None,
                 data: vec![vec![0u8; 3]],
             }))
-            .is_err());
+            .is_err()
+        );
     }
 
     #[test]

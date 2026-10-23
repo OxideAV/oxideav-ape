@@ -60,10 +60,9 @@ pub fn frame_pcm(
         (1, 1) => {
             // Mono: X alone, cross term 0 (§6.1).
             let mut x_pred = ArrayPredictor::new(version, level)?;
-            Ok(vec![res.arrays[0]
-                .iter()
-                .map(|&r| x_pred.decode(r, 0))
-                .collect()])
+            Ok(vec![
+                res.arrays[0].iter().map(|&r| x_pred.decode(r, 0)).collect(),
+            ])
         }
         (2, 1) if flags.has(FrameFlags::PSEUDO_STEREO) => {
             // Pseudo-stereo: decode X only, Y = 0 collapses the §6.9
@@ -182,7 +181,7 @@ pub fn interleave_pcm_bytes(channels: &[Vec<i32>], bits_per_sample: u16) -> Resu
         _ => {
             return Err(Error::Malformed(
                 "bits-per-sample outside the staged {8, 16, 24} set",
-            ))
+            ));
         }
     };
     let mut out = Vec::with_capacity(n * channels.len() * bytes_per);
@@ -216,14 +215,14 @@ pub fn deinterleave_pcm_bytes(
         _ => {
             return Err(Error::InvalidInput(
                 "bits-per-sample outside the staged {8, 16, 24} set",
-            ))
+            ));
         }
     };
     if channels == 0 {
         return Err(Error::InvalidInput("channel count must be non-zero"));
     }
     let align = bytes_per * usize::from(channels);
-    if bytes.len() % align != 0 {
+    if !bytes.len().is_multiple_of(align) {
         return Err(Error::InvalidInput(
             "PCM byte buffer is not a whole number of sample frames",
         ));

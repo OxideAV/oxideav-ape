@@ -134,13 +134,10 @@ impl Md5 {
             self.compress(&block);
             self.block_len = 0;
         }
-        let mut chunks = rest.chunks_exact(64);
-        for chunk in &mut chunks {
-            let mut block = [0u8; 64];
-            block.copy_from_slice(chunk);
-            self.compress(&block);
+        let (blocks, tail) = rest.as_chunks::<64>();
+        for block in blocks {
+            self.compress(block);
         }
-        let tail = chunks.remainder();
         self.block[..tail.len()].copy_from_slice(tail);
         self.block_len = tail.len();
     }

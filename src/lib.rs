@@ -195,7 +195,7 @@ pub mod scalars;
 pub mod writer;
 
 pub use cascade::{
-    cascade_decode, cascade_encode, filter_stage_decode, filter_stage_encode, StageState,
+    StageState, cascade_decode, cascade_encode, filter_stage_decode, filter_stage_encode,
 };
 pub use config::StreamConfig;
 pub use decoder::{ApeDecoder, FrameDecode, FrameDeltaSource};
@@ -204,38 +204,38 @@ pub use decorrelate::{
     reconstruct_block_arith_shift, reconstruct_pair, reconstruct_pair_arith_shift,
 };
 pub use encoder::{
-    encode_pcm, encode_wav, ApeEncoder, EncodedFrame, EncoderConfig, WavSplit,
-    DEFAULT_BLOCKS_PER_FRAME,
+    ApeEncoder, DEFAULT_BLOCKS_PER_FRAME, EncodedFrame, EncoderConfig, WavSplit, encode_pcm,
+    encode_wav,
 };
 pub use entropy::{
-    fold_residual, unfold_residual, EntropyInit, ResidualDecoder, ResidualEncoder,
-    K_SUM_MIN_BOUNDARY,
+    EntropyInit, K_SUM_MIN_BOUNDARY, ResidualDecoder, ResidualEncoder, fold_residual,
+    unfold_residual,
 };
 pub use error::{Error, Result};
 pub use file_header::{ApeDescriptor, FileInfo, FormatFlags};
 pub use filter_config::{
-    cascade_for_level, FilterCascade, FilterStage, FILTER_STAGES, MAX_CASCADE_DEPTH,
+    FILTER_STAGES, FilterCascade, FilterStage, MAX_CASCADE_DEPTH, cascade_for_level,
 };
 pub use frame::{
-    crc32, decode_frame_residuals, FrameFlags, FramePrologue, FrameResiduals, FRAME_ENTROPY_INIT,
+    FRAME_ENTROPY_INIT, FrameFlags, FramePrologue, FrameResiduals, crc32, decode_frame_residuals,
 };
 pub use freq_model::{
-    counts_for_version, freqs_for_version, symbol_for_cum_freq, symbol_interval, symbol_width,
-    COUNTS_GE3990, COUNTS_LE3980, FREQS_GE3990, FREQS_LE3980, FREQ_MODEL_VERSION_SPLIT,
+    COUNTS_GE3990, COUNTS_LE3980, FREQ_MODEL_VERSION_SPLIT, FREQS_GE3990, FREQS_LE3980,
     MODEL_ELEMENTS, POWERS_OF_TWO_MINUS_ONE, RANGE_OVERFLOW_SHIFT, RANGE_TOTAL_WIDTH,
+    counts_for_version, freqs_for_version, symbol_for_cum_freq, symbol_interval, symbol_width,
 };
-pub use header::{CompressionLevel, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC};
-pub use nn_filter::{DeltaEra, NnFilter, DELTA_ERA_SPLIT_VERSION, NN_WINDOW};
+pub use header::{CompressionLevel, FILE_EXTENSION, HEADER_PREFIX_LEN, HeaderPrefix, MAGIC};
+pub use nn_filter::{DELTA_ERA_SPLIT_VERSION, DeltaEra, NN_WINDOW, NnFilter};
 pub use pcm::{
     deinterleave_pcm_bytes, frame_pcm, interleave_pcm_bytes, pcm_to_coded_arrays,
     reconstruct_sample_pair,
 };
 pub use pipeline::{
-    decode_frame, encode_frame, CorrelationRounding, DeltaSink, DeltaSource, FrameChannels,
+    CorrelationRounding, DeltaSink, DeltaSource, FrameChannels, decode_frame, encode_frame,
 };
 pub use predict::{
-    ArrayPredictor, FirstOrderFilter, OffsetPredictor3930, OffsetPredictor3950, CROSS_TERM_VERSION,
-    OFFSET_WEIGHT_SEEDS, PREDICTOR_MIN_VERSION,
+    ArrayPredictor, CROSS_TERM_VERSION, FirstOrderFilter, OFFSET_WEIGHT_SEEDS, OffsetPredictor3930,
+    OffsetPredictor3950, PREDICTOR_MIN_VERSION,
 };
 pub use predictor::{
     adapt_sign, predict_dot, predict_step, predict_step_self_ref, residual_step,
@@ -243,10 +243,10 @@ pub use predictor::{
 };
 pub use range_coder::{BitInput, RangeDecoder, RangeEncoder};
 pub use scalars::{
-    ksum_pivot, stage1_predict, KSUM_PIVOT_DIVISOR, PREDICTOR_HISTORY_SEED, STAGE1_FILTER_SHIFT,
-    STAGE1_FILTER_WEIGHT,
+    KSUM_PIVOT_DIVISOR, PREDICTOR_HISTORY_SEED, STAGE1_FILTER_SHIFT, STAGE1_FILTER_WEIGHT,
+    ksum_pivot, stage1_predict,
 };
-pub use writer::{canonical_wav_header, to_le_word_layout, FileLayout, ENCODER_FILE_VERSION};
+pub use writer::{ENCODER_FILE_VERSION, FileLayout, canonical_wav_header, to_le_word_layout};
 
 /// Crate identifier used by the future `oxideav-core` registry entry.
 pub const CRATE_NAME: &str = "oxideav-ape";
@@ -270,8 +270,8 @@ pub fn registry_name() -> &'static str {
 
 #[cfg(feature = "registry")]
 pub use registry::{
-    bits_for_sample_format, make_decoder, make_encoder, register, ApeEncoderOptions,
-    FrameworkDecoder, FrameworkEncoder, CODEC_ID,
+    ApeEncoderOptions, CODEC_ID, FrameworkDecoder, FrameworkEncoder, bits_for_sample_format,
+    make_decoder, make_encoder, register,
 };
 
 /// Crate-root re-export of the `oxideav_core::register!`-generated

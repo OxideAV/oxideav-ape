@@ -27,7 +27,7 @@
 
 use oxideav_ape::decoder::{ApeDecoder, FrameDecode};
 use oxideav_ape::file_header::FormatFlags;
-use oxideav_ape::frame::{crc32, FrameFlags};
+use oxideav_ape::frame::{FrameFlags, crc32};
 use oxideav_ape::header::CompressionLevel;
 
 const SILENCE_STEREO: &[u8] = include_bytes!("fixtures/silence_stereo.ape");
@@ -253,7 +253,7 @@ fn two_frame_file_re_primes_the_coder_at_the_second_frame() {
 #[test]
 fn frame_delta_source_feeds_the_pipeline_from_a_real_frame() {
     use oxideav_ape::decoder::FrameDeltaSource;
-    use oxideav_ape::pipeline::{decode_frame, CorrelationRounding, FrameChannels};
+    use oxideav_ape::pipeline::{CorrelationRounding, FrameChannels, decode_frame};
 
     let dec = ApeDecoder::new(NOISE_STEREO).unwrap();
     let info = dec.info();

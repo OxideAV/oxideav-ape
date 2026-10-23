@@ -1,8 +1,8 @@
 [package]
 name = "oxideav-ape"
 version = "0.0.4"
-edition = "2021"
-rust-version = "1.80"
+edition = "2024"
+rust-version = "1.95"
 license = "MIT"
 authors = ["Mark Karpeles"]
 description = "Pure-Rust clean-room Monkey's Audio (.ape) codec for the oxideav framework — byte-exact whole-file decode and a full 3990-era encoder (range coder, adaptive predictor cascade, channel decorrelation, container + cFileMD5), validated both directions against the reference binary"

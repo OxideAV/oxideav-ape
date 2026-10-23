@@ -41,8 +41,8 @@
 
 use crate::error::{Error, Result};
 use crate::freq_model::{
-    counts_for_version, parse_u32_col, symbol_for_cum_freq, symbol_interval, MODEL_ELEMENTS,
-    RANGE_OVERFLOW_SHIFT,
+    MODEL_ELEMENTS, RANGE_OVERFLOW_SHIFT, counts_for_version, parse_u32_col, symbol_for_cum_freq,
+    symbol_interval,
 };
 use crate::range_coder::{RangeDecoder, RangeEncoder};
 use crate::scalars::ksum_pivot;

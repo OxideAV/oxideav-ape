@@ -2,7 +2,7 @@
 //! the wiki §"IIR Filtering" pins. Walks every public-API entry point
 //! the crate root re-exports.
 
-use oxideav_ape::{adapt_sign, predict_dot, predict_step, predict_step_self_ref, Error};
+use oxideav_ape::{Error, adapt_sign, predict_dot, predict_step, predict_step_self_ref};
 
 #[test]
 fn dot_product_anchors_at_public_api() {

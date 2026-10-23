@@ -332,10 +332,11 @@ mod tests {
         assert!(out.silent);
         assert_eq!(out.end_bit_pos, 64);
         assert_eq!(out.arrays.len(), 2);
-        assert!(out
-            .arrays
-            .iter()
-            .all(|a| a.len() == 64 && a.iter().all(|&v| v == 0)));
+        assert!(
+            out.arrays
+                .iter()
+                .all(|a| a.len() == 64 && a.iter().all(|&v| v == 0))
+        );
     }
 
     #[test]

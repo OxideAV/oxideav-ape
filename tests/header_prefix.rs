@@ -4,7 +4,7 @@
 //! crate-root re-exports.
 
 use oxideav_ape::{
-    is_ape_magic, CompressionLevel, Error, HeaderPrefix, FILE_EXTENSION, HEADER_PREFIX_LEN, MAGIC,
+    CompressionLevel, Error, FILE_EXTENSION, HEADER_PREFIX_LEN, HeaderPrefix, MAGIC, is_ape_magic,
 };
 
 #[test]

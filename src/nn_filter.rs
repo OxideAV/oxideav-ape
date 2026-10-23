@@ -95,11 +95,7 @@ impl DeltaEra {
 /// when positive. Callers handle `w == 0` before calling.
 #[inline]
 const fn sign_step(w: i32, magnitude: i16) -> i16 {
-    if w < 0 {
-        magnitude
-    } else {
-        -magnitude
-    }
+    if w < 0 { magnitude } else { -magnitude }
 }
 
 /// Saturating `i32 -> i16` narrow — §6.5 step 4, the only saturation
@@ -139,7 +135,7 @@ impl NnFilter {
     /// satisfies this for every stage with a filter); anything else is
     /// rejected rather than run off-spec.
     pub fn new(order: usize, shift: u32, era: DeltaEra) -> Result<Self> {
-        if order == 0 || order % 16 != 0 {
+        if order == 0 || !order.is_multiple_of(16) {
             return Err(Error::Malformed(
                 "adaptive-filter order must be a positive multiple of 16",
             ));
@@ -385,10 +381,10 @@ mod tests {
         f.decode(1000); // writes delta[cursor] = -32 (positive out)
         let before = f.m.clone();
         f.decode(-1); // negative incoming: m[j] += delta[base + j]
-                      // The freshly written delta now sits at the top of the window:
-                      // delta[base + 15] was the lag-0 write of the previous step
-                      // (halved once by the era-A lag-1 decay of this step? no —
-                      // decays happen after the update, in push_and_advance).
+        // The freshly written delta now sits at the top of the window:
+        // delta[base + 15] was the lag-0 write of the previous step
+        // (halved once by the era-A lag-1 decay of this step? no —
+        // decays happen after the update, in push_and_advance).
         assert_eq!(f.m[15], before[15].wrapping_add(-32));
         // A zero incoming value leaves the weights untouched.
         let frozen = f.m.clone();

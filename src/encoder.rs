@@ -41,10 +41,10 @@
 
 use crate::entropy::ResidualEncoder;
 use crate::error::{Error, Result};
-use crate::frame::{crc32, FrameFlags, FRAME_ENTROPY_INIT, FRAME_PRIME_PAD_BYTES};
+use crate::frame::{FRAME_ENTROPY_INIT, FRAME_PRIME_PAD_BYTES, FrameFlags, crc32};
 use crate::header::CompressionLevel;
 use crate::pcm::{deinterleave_pcm_bytes, interleave_pcm_bytes, pcm_to_coded_arrays};
-use crate::writer::{canonical_wav_header, to_le_word_layout, FileLayout, ENCODER_FILE_VERSION};
+use crate::writer::{ENCODER_FILE_VERSION, FileLayout, canonical_wav_header, to_le_word_layout};
 
 /// Default blocks per frame — the value the vendor encoder writes for
 /// every fixture in the corpus (§1.2; 8 kHz mono and 44.1 kHz stereo
@@ -621,15 +621,21 @@ mod tests {
 
     #[test]
     fn config_validation() {
-        assert!(EncoderConfig::new(CompressionLevel::Fast, 3, 44100, 16)
-            .validate()
-            .is_err());
-        assert!(EncoderConfig::new(CompressionLevel::Fast, 1, 44100, 12)
-            .validate()
-            .is_err());
-        assert!(EncoderConfig::new(CompressionLevel::Fast, 1, 0, 16)
-            .validate()
-            .is_err());
+        assert!(
+            EncoderConfig::new(CompressionLevel::Fast, 3, 44100, 16)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            EncoderConfig::new(CompressionLevel::Fast, 1, 44100, 12)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            EncoderConfig::new(CompressionLevel::Fast, 1, 0, 16)
+                .validate()
+                .is_err()
+        );
         let mut c = EncoderConfig::new(CompressionLevel::Fast, 1, 44100, 16);
         c.blocks_per_frame = 0;
         assert!(c.validate().is_err());
