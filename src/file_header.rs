@@ -103,6 +103,7 @@ impl FormatFlags {
 
 /// §1.1 new-era descriptor (`version >= 3980`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ApeDescriptor {
     /// Total descriptor size on disk (>= 52; the surplus is skipped).
     pub descriptor_bytes: u32,
@@ -170,6 +171,7 @@ impl<'a> Reader<'a> {
 /// Unified per-version view of everything the header/tail layout pins,
 /// for both eras.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FileInfo {
     /// Bytes skipped before the `'MAC '` magic (e.g. a leading ID3v2
     /// tag).

@@ -35,11 +35,7 @@ fn every_documented_level_roundtrips_through_encode_parse() {
         CompressionLevel::ExtraHigh,
         CompressionLevel::Insane,
     ] {
-        let original = HeaderPrefix {
-            version_raw: 3920,
-            compression_level: level,
-            header_tail_offset: HEADER_PREFIX_LEN,
-        };
+        let original = HeaderPrefix::new(3920, level).with_header_tail_offset(HEADER_PREFIX_LEN);
         let bytes = original.encode_prefix();
         let parsed = HeaderPrefix::parse(&bytes).expect("documented level round-trips");
         assert_eq!(parsed, original);

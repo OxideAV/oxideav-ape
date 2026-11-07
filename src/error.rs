@@ -12,6 +12,7 @@
 
 /// Errors produced by the Phase 1 Monkey's Audio file-header parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The stream is missing the four-byte `'MAC '` ASCII magic at
     /// offset 0 or is shorter than eight bytes total. Per the

@@ -181,6 +181,7 @@ pub fn bits_for_sample_format(format: SampleFormat) -> Option<u16> {
 
 /// Typed encoder options (the `CodecParameters::options` schema).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ApeEncoderOptions {
     /// Compression profile. Accepts the narrative label (`"fast"`,
     /// `"normal"`, `"high"`, `"extra high"` / `"extra_high"`,
@@ -188,6 +189,19 @@ pub struct ApeEncoderOptions {
     pub compression_level: CompressionLevel,
     /// Audio blocks per APE frame.
     pub blocks_per_frame: u32,
+}
+
+impl ApeEncoderOptions {
+    /// Builder-style setter for [`compression_level`](Self::compression_level).
+    pub fn with_compression_level(mut self, compression_level: CompressionLevel) -> Self {
+        self.compression_level = compression_level;
+        self
+    }
+    /// Builder-style setter for [`blocks_per_frame`](Self::blocks_per_frame).
+    pub fn with_blocks_per_frame(mut self, blocks_per_frame: u32) -> Self {
+        self.blocks_per_frame = blocks_per_frame;
+        self
+    }
 }
 
 impl Default for ApeEncoderOptions {

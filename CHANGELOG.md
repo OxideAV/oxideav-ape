@@ -9,6 +9,26 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `with_<field>` builder setters on `EncoderConfig`, `HeaderPrefix`
+  and `ApeEncoderOptions`, so callers build them from `new()` /
+  `Default` without struct literals.
+
+### Changed
+
+- `#[non_exhaustive]` on the records `EncoderConfig`, `EncodedFrame`,
+  `WavSplit`, `ApeDescriptor`, `FileInfo`, `HeaderPrefix`,
+  `ApeEncoderOptions` and on the enums `Error` and `FrameDecode`.
+  `CompressionLevel` stays exhaustive (the format's five levels).
+- `#[doc(hidden)]` on the internal modules `cascade`, `decorrelate`,
+  `entropy`, `filter_config`, `frame`, `freq_model`, `md5`,
+  `nn_filter`, `pcm`, `pipeline`, `predict`, `predictor`,
+  `range_coder`, `scalars` and their crate-root re-exports (except
+  `FrameFlags`, which `EncodedFrame` carries), plus
+  `FrameDeltaSource`, `FileLayout`, `canonical_wav_header` and
+  `to_le_word_layout`.
+
 ## [0.0.5](https://github.com/OxideAV/oxideav-ape/compare/v0.0.4...v0.0.5) - 2026-10-23
 
 ### Other

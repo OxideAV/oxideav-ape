@@ -53,6 +53,7 @@ pub const DEFAULT_BLOCKS_PER_FRAME: u32 = 73728;
 
 /// Encoder configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EncoderConfig {
     /// Compression profile — selects the NN cascade (§6.4).
     pub compression_level: CompressionLevel,
@@ -74,6 +75,49 @@ pub struct EncoderConfig {
     /// after the terminating blob — pass-through only; this crate
     /// neither parses nor synthesises tags.
     pub trailing_tag: Vec<u8>,
+}
+
+impl EncoderConfig {
+    /// Builder-style setter for [`compression_level`](Self::compression_level).
+    pub fn with_compression_level(mut self, compression_level: CompressionLevel) -> Self {
+        self.compression_level = compression_level;
+        self
+    }
+    /// Builder-style setter for [`channels`](Self::channels).
+    pub fn with_channels(mut self, channels: u16) -> Self {
+        self.channels = channels;
+        self
+    }
+    /// Builder-style setter for [`sample_rate`](Self::sample_rate).
+    pub fn with_sample_rate(mut self, sample_rate: u32) -> Self {
+        self.sample_rate = sample_rate;
+        self
+    }
+    /// Builder-style setter for [`bits_per_sample`](Self::bits_per_sample).
+    pub fn with_bits_per_sample(mut self, bits_per_sample: u16) -> Self {
+        self.bits_per_sample = bits_per_sample;
+        self
+    }
+    /// Builder-style setter for [`blocks_per_frame`](Self::blocks_per_frame).
+    pub fn with_blocks_per_frame(mut self, blocks_per_frame: u32) -> Self {
+        self.blocks_per_frame = blocks_per_frame;
+        self
+    }
+    /// Builder-style setter for [`wav_header`](Self::wav_header).
+    pub fn with_wav_header(mut self, wav_header: Option<Vec<u8>>) -> Self {
+        self.wav_header = wav_header;
+        self
+    }
+    /// Builder-style setter for [`terminating_data`](Self::terminating_data).
+    pub fn with_terminating_data(mut self, terminating_data: Vec<u8>) -> Self {
+        self.terminating_data = terminating_data;
+        self
+    }
+    /// Builder-style setter for [`trailing_tag`](Self::trailing_tag).
+    pub fn with_trailing_tag(mut self, trailing_tag: Vec<u8>) -> Self {
+        self.trailing_tag = trailing_tag;
+        self
+    }
 }
 
 impl EncoderConfig {
@@ -131,6 +175,7 @@ impl EncoderConfig {
 /// One encoded frame: its flags and its logical byte stream (prologue,
 /// pad, coder payload — before the §4.1 word layout).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EncodedFrame {
     /// The §4.2 frame flags (`0` when no flags word is written).
     pub flags: FrameFlags,
@@ -425,6 +470,7 @@ pub fn encode_pcm(cfg: EncoderConfig, channels: &[Vec<i32>]) -> Result<Vec<u8>> 
 /// (§1.1): everything through the `data` chunk header, the PCM
 /// payload, and whatever trails it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WavSplit<'a> {
     /// Channel count from the `fmt ` chunk.
     pub channels: u16,

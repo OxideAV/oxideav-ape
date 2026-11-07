@@ -22,6 +22,7 @@ use crate::pipeline::DeltaSource;
 
 /// One frame's decode outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FrameDecode {
     /// The frame's exact PCM, one array per channel.
     Pcm(Vec<Vec<i32>>),
@@ -198,6 +199,7 @@ impl<'a> ApeDecoder<'a> {
 /// per-channel in the pinned unpack order. A pseudo-stereo frame
 /// serves its single shared array to both channels.
 #[derive(Debug, Clone)]
+#[doc(hidden)]
 pub struct FrameDeltaSource {
     arrays: Vec<Vec<i32>>,
     pseudo_stereo: bool,

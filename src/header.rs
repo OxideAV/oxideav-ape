@@ -221,6 +221,7 @@ impl core::fmt::Display for CompressionLevel {
 /// explicitly when handing the remainder to a future per-version
 /// header-tail parser.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct HeaderPrefix {
     /// Raw 16-bit version field. Encoders write the spec major and
     /// minor as `major * 1000 + minor * 10`; e.g. v3.92 is 3920 and
@@ -234,6 +235,24 @@ pub struct HeaderPrefix {
     /// Always [`HEADER_PREFIX_LEN`] in Phase 1; carried as a field so
     /// downstream parsers can pick up from a documented index.
     pub header_tail_offset: usize,
+}
+
+impl HeaderPrefix {
+    /// Builder-style setter for [`version_raw`](Self::version_raw).
+    pub fn with_version_raw(mut self, version_raw: u16) -> Self {
+        self.version_raw = version_raw;
+        self
+    }
+    /// Builder-style setter for [`compression_level`](Self::compression_level).
+    pub fn with_compression_level(mut self, compression_level: CompressionLevel) -> Self {
+        self.compression_level = compression_level;
+        self
+    }
+    /// Builder-style setter for [`header_tail_offset`](Self::header_tail_offset).
+    pub fn with_header_tail_offset(mut self, header_tail_offset: usize) -> Self {
+        self.header_tail_offset = header_tail_offset;
+        self
+    }
 }
 
 impl HeaderPrefix {

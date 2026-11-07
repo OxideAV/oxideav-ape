@@ -30,6 +30,7 @@ pub const ENCODER_FILE_VERSION: u16 = 3990;
 /// Where a non-empty terminating blob folds into `cFileMD5`: after the
 /// frame data, before the `APE_HEADER` block (the §1.8 write-order
 /// inference).
+#[doc(hidden)]
 pub const TERMINATING_DATA_IN_MD5_AFTER_FRAMES: bool = true;
 
 /// Reshape a logical byte stream into the §4.1 on-disk layout: the
@@ -38,6 +39,7 @@ pub const TERMINATING_DATA_IN_MD5_AFTER_FRAMES: bool = true;
 /// `(p & !3) + (3 - (p & 3))`. The stream is zero-padded to a whole
 /// number of words first (the vendor pads the region the same way —
 /// every fixture's `nAPEFrameDataBytes` is a multiple of 4).
+#[doc(hidden)]
 pub fn to_le_word_layout(mut logical: Vec<u8>) -> Vec<u8> {
     while !logical.len().is_multiple_of(4) {
         logical.push(0);
@@ -50,6 +52,7 @@ pub fn to_le_word_layout(mut logical: Vec<u8>) -> Vec<u8> {
 
 /// Everything the new-era layout stores, ready to serialise.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[doc(hidden)]
 pub struct FileLayout {
     /// The two bytes of the §1.1 alignment gap at descriptor offsets
     /// 6..8 (`nPadding` in later SDKs). Semantically dead — every
@@ -162,6 +165,7 @@ impl FileLayout {
 /// Synthesise the canonical 44-byte RIFF/WAVE PCM header for a stream
 /// of `data_len` PCM bytes — what the encoder stores when the caller
 /// supplies no source WAV header to pass through.
+#[doc(hidden)]
 pub fn canonical_wav_header(
     channels: u16,
     sample_rate: u32,

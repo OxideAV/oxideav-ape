@@ -170,35 +170,53 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+#[doc(hidden)]
 pub mod cascade;
 pub mod config;
 pub mod decoder;
+#[doc(hidden)]
 pub mod decorrelate;
 pub mod encoder;
+#[doc(hidden)]
 pub mod entropy;
 pub mod error;
 pub mod file_header;
+#[doc(hidden)]
 pub mod filter_config;
+#[doc(hidden)]
 pub mod frame;
+#[doc(hidden)]
 pub mod freq_model;
 pub mod header;
+#[doc(hidden)]
 pub mod md5;
+#[doc(hidden)]
 pub mod nn_filter;
+#[doc(hidden)]
 pub mod pcm;
+#[doc(hidden)]
 pub mod pipeline;
+#[doc(hidden)]
 pub mod predict;
+#[doc(hidden)]
 pub mod predictor;
+#[doc(hidden)]
 pub mod range_coder;
 #[cfg(feature = "registry")]
 pub mod registry;
+#[doc(hidden)]
 pub mod scalars;
 pub mod writer;
 
+#[doc(hidden)]
 pub use cascade::{
     StageState, cascade_decode, cascade_encode, filter_stage_decode, filter_stage_encode,
 };
 pub use config::StreamConfig;
-pub use decoder::{ApeDecoder, FrameDecode, FrameDeltaSource};
+#[doc(hidden)]
+pub use decoder::FrameDeltaSource;
+pub use decoder::{ApeDecoder, FrameDecode};
+#[doc(hidden)]
 pub use decorrelate::{
     decorrelate_pair, decorrelate_pair_arith_shift, reconstruct_block,
     reconstruct_block_arith_shift, reconstruct_pair, reconstruct_pair_arith_shift,
@@ -207,46 +225,58 @@ pub use encoder::{
     ApeEncoder, DEFAULT_BLOCKS_PER_FRAME, EncodedFrame, EncoderConfig, WavSplit, encode_pcm,
     encode_wav,
 };
+#[doc(hidden)]
 pub use entropy::{
     EntropyInit, K_SUM_MIN_BOUNDARY, ResidualDecoder, ResidualEncoder, fold_residual,
     unfold_residual,
 };
 pub use error::{Error, Result};
 pub use file_header::{ApeDescriptor, FileInfo, FormatFlags};
+#[doc(hidden)]
 pub use filter_config::{
     FILTER_STAGES, FilterCascade, FilterStage, MAX_CASCADE_DEPTH, cascade_for_level,
 };
-pub use frame::{
-    FRAME_ENTROPY_INIT, FrameFlags, FramePrologue, FrameResiduals, crc32, decode_frame_residuals,
-};
+pub use frame::FrameFlags;
+#[doc(hidden)]
+pub use frame::{FRAME_ENTROPY_INIT, FramePrologue, FrameResiduals, crc32, decode_frame_residuals};
+#[doc(hidden)]
 pub use freq_model::{
     COUNTS_GE3990, COUNTS_LE3980, FREQ_MODEL_VERSION_SPLIT, FREQS_GE3990, FREQS_LE3980,
     MODEL_ELEMENTS, POWERS_OF_TWO_MINUS_ONE, RANGE_OVERFLOW_SHIFT, RANGE_TOTAL_WIDTH,
     counts_for_version, freqs_for_version, symbol_for_cum_freq, symbol_interval, symbol_width,
 };
 pub use header::{CompressionLevel, FILE_EXTENSION, HEADER_PREFIX_LEN, HeaderPrefix, MAGIC};
+#[doc(hidden)]
 pub use nn_filter::{DELTA_ERA_SPLIT_VERSION, DeltaEra, NN_WINDOW, NnFilter};
+#[doc(hidden)]
 pub use pcm::{
     deinterleave_pcm_bytes, frame_pcm, interleave_pcm_bytes, pcm_to_coded_arrays,
     reconstruct_sample_pair,
 };
+#[doc(hidden)]
 pub use pipeline::{
     CorrelationRounding, DeltaSink, DeltaSource, FrameChannels, decode_frame, encode_frame,
 };
+#[doc(hidden)]
 pub use predict::{
     ArrayPredictor, CROSS_TERM_VERSION, FirstOrderFilter, OFFSET_WEIGHT_SEEDS, OffsetPredictor3930,
     OffsetPredictor3950, PREDICTOR_MIN_VERSION,
 };
+#[doc(hidden)]
 pub use predictor::{
     adapt_sign, predict_dot, predict_step, predict_step_self_ref, residual_step,
     residual_step_self_ref,
 };
+#[doc(hidden)]
 pub use range_coder::{BitInput, RangeDecoder, RangeEncoder};
+#[doc(hidden)]
 pub use scalars::{
     KSUM_PIVOT_DIVISOR, PREDICTOR_HISTORY_SEED, STAGE1_FILTER_SHIFT, STAGE1_FILTER_WEIGHT,
     ksum_pivot, stage1_predict,
 };
-pub use writer::{ENCODER_FILE_VERSION, FileLayout, canonical_wav_header, to_le_word_layout};
+pub use writer::ENCODER_FILE_VERSION;
+#[doc(hidden)]
+pub use writer::{FileLayout, canonical_wav_header, to_le_word_layout};
 
 /// Crate identifier used by the future `oxideav-core` registry entry.
 pub const CRATE_NAME: &str = "oxideav-ape";
