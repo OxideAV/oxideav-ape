@@ -9,6 +9,12 @@ format is loosely based on [Keep a Changelog] and the crate adheres to
 
 ## [Unreleased]
 
+## [0.0.6](https://github.com/OxideAV/oxideav-ape/compare/v0.0.5...v0.0.6) - 2026-11-07
+
+### Other
+
+- API hygiene: non_exhaustive records + enums, builders, hidden internals
+
 ### Added
 
 - `with_<field>` builder setters on `EncoderConfig`, `HeaderPrefix`
